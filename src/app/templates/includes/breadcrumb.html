@@ -1,0 +1,25 @@
+{% if flexihtml.breadcrumb() | first %}
+<ol class="breadcrumb">
+    <li class="breadcrumb-item">
+        <a href="/">
+            <i class="fa-solid fa-house"></i>
+        </a>
+    </li>
+    {% for path, label in flexihtml.breadcrumb() %}
+        {% if loop.last == false %}
+            <li class="breadcrumb-item">
+                <a href="{{ path }}">
+                    {{ label }}
+                </a>
+            </li>
+        {% else %}
+            <li class="breadcrumb-item active">
+                {{ label }}
+            </li>
+        {% endif %}
+    {% endfor %}
+</ol>
+{% endif %}
+
+<h1>{{ flexihtml.title }}</h1>
+<hr />

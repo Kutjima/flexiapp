@@ -1,0 +1,188 @@
+{% extends 'base_template.html' %}
+
+{% block main_content %}
+<div id="flexihtml">
+    <div class="dropdown dropdown-wide float-end">
+        <a class="btn btn-link pe-0" id="dropdown-advanced-search" data-bs-auto-close="outside" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fa-solid fa-gear"></i>
+        </a>
+        <div class="dropdown-menu" aria-labelledby="dropdown-advanced-search">
+            <ul class="nav nav-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link active" data-bs-toggle="tab" href="#advanced-search" aria-selected="true" role="tab">
+                        Deep Search
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" data-bs-toggle="tab" href="#hidden-columns" aria-selected="false" role="tab">
+                        Show/hide columns
+                    </a>
+                </li>
+            </ul>
+            <div class="tab-content">
+                <div class="tab-pane fade show active pt-3" id="advanced-search" role="tabpanel">
+                    <form method="get" accept-charset="UTF-8" enctype="multipart/form-data" >
+                        {% for input_name, searchbox in flexihtml.searchbox.items() %}
+                            <div class="mb-3">
+                                <label class="form-label fw-bold mb-2">{{ searchbox.label }}:</label>
+                                <div class="row">
+                                    <div class="col-5">
+                                        <select name="{{ input_name }}_sb0" class="form-select" onchange="flexihtml.toggle_sb2_input(this, '{{ input_name }}');">
+                                            {% for opt_value, opt_label in searchbox.exp_options.items() %}
+                                                <option value="{{ opt_value }}" {% if opt_value in searchbox.exp_selected %}selected=""{% endif %}>{{ opt_label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-7">
+                                        <div class="row">
+                                            {% if searchbox.exp_selected.endswith('between') %}
+                                                {% set class_1, class_2, is_disabled = "col-6", "col-6", False %}
+                                            {% else %}
+                                                {% set class_1, class_2, is_disabled = "col-12", "d-none", True %}
+                                            {% endif %}
+                                            
+                                            {% if searchbox.html_input_tag == 'textarea' %}
+                                                <div id="div-1-{{ input_name }}" class="{{ class_1 }}">
+                                                    <textarea 
+                                                        class="form-control" 
+                                                        name="{{ input_name }}_sb1">{{ searchbox.input_value_1 }}</textarea>
+                                                </div>
+                                                <divv id="div-2-{{ input_name }}" class="{{ class_2 }}">
+                                                    <textarea 
+                                                        class="form-control" 
+                                                        name="{{ input_name }}_sb2"
+                                                        {% if is_disabled %}disabled=""{% endif %}>{{ searchbox.input_value_2 }}</textarea>
+                                                </div>
+                                            {% elif searchbox.html_input_tag == 'select' %}
+                                                <div id="div-1-{{ input_name }}" class="{{ class_1 }}">
+                                                    <select 
+                                                        class="form-select" 
+                                                        name="{{ input_name }}_sb1">
+                                                        {% for opt_value, opt_label in searchbox.value_options.items() %}
+                                                            <option value="{{ opt_value }}" {% if opt_value in searchbox.input_value_1 %}selected=""{% endif %}>{{ opt_label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div id="div-2-{{ input_name }}" class="{{ class_2 }}">
+                                                    <select 
+                                                        class="form-select" 
+                                                        name="{{ input_name }}_sb2"
+                                                        {% if is_disabled %}disabled=""{% endif %}>
+                                                        {% for opt_value, opt_label in searchbox.value_options.items() %}
+                                                            <option value="{{ opt_value }}" {% if opt_value in searchbox.input_value_2 %}selected=""{% endif %}>{{ opt_label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                            {% else %}
+                                                <div id="div-1-{{ input_name }}" class="{{ class_1 }}">
+                                                    <input 
+                                                        class="form-control" 
+                                                        name="{{ input_name }}_sb1" 
+                                                        type="{{ searchbox.html_input_type }}"
+                                                        value="{{ searchbox.input_value_1|safe }}" />
+                                                </div>
+                                                <div id="div-2-{{ input_name }}" class="{{ class_2 }}">
+                                                    <input 
+                                                        class="form-control" 
+                                                        name="{{ input_name }}_sb2" 
+                                                        type="{{ searchbox.html_input_type }}" 
+                                                        value="{{ searchbox.input_value_2|safe }}"
+                                                        {% if is_disabled %}disabled=""{% endif %} />
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <small class="form-text text-muted">{{ searchbox.help_text }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                        <hr />
+                        <div class="row">
+                            <div class="col-5">
+                                <button type="reset" class="btn btn-secondary w-100">Reset</button>
+                            </div>
+                            <div class="col-7">
+                                <button type="submit" class="btn btn-primary w-100">Search</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="tab-pane fade pt-3" id="hidden-columns" role="tabpanel">
+                    {% for uuid, column in flexihtml.table.labels() %}
+                        {% if column.hidden >= 0 %}
+                            <div class="form-check form-switch">
+                                <input 
+                                    id="switch-{{ uuid }}" 
+                                    type="checkbox" 
+                                    value="{{ uuid }}" 
+                                    class="form-check-input" 
+                                    onchange="return flexihtml.hide_column(this, '{{ uuid }}');" 
+                                    {% if not column.hidden %}checked=""{% endif %} />
+                                <label class="form-check-label" for="switch-{{ uuid }}">{{ column.label }}</label>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div>
+        Showing {{ "{:,}".format(flexihtml.table.offset) }} - {{ "{:,}".format(flexihtml.table.offset_limit) }} items among {{ "{:,}".format(flexihtml.table.total_items) }} results.
+    </div>
+    <div class="table-responsive mt-4">
+        <table class="table table-hover table-bordered">
+            <thead>
+                <tr class="table-head">
+                    {% for uuid, column in flexihtml.table.labels() %}
+                        <th 
+                            scope="col" 
+                            class="table-column-{{ uuid }} {{ column.classname }}"
+                            {% if column.hidden == True %}style="display: none;"{% endif %}>
+                            {%  if column.sortable %}
+                                <a class="table-column-sortable" href="">
+                                    {{ column.label }} <span class="float-end"><i class="fa-solid fa-sort"></i></span>
+                                </a>
+                            {% else %}
+                                {{ column.label }} 
+                            {% endif %}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for line_uuid, columns in flexihtml.table.items() %}
+                    <tr id="table-line-{{ line_uuid }}">
+                        {% for column_uuid, column in columns.items() %}
+                            <td 
+                                class="table-column-{{ column_uuid }} {{ column.classname }}"
+                                {% if column.hidden > 0 %}style="display: none;"{% endif %}>
+                                {{ column.callback }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div>
+        <div class="float-end">
+            <ul class="pagination">
+                {% for n, text, active in flexihtml.table.paginations() %}
+                    <li class="page-item {% if active %}active{% endif %}">
+                        <a class="page-link" href="?{{ flexihtml.table.PAGINATION_PAGE_QNAME }}={{ n }}">{{ text }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+<div id="offcanvas" class="offcanvas offcanvas-start" tabindex="-1" aria-labelledby="offcanvas-label">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="offcanvas-label"></h5>
+        <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body"></div>
+</div>
+{% endblock %}
+
+{% block javascript %}{% endblock %}
