@@ -74,6 +74,10 @@ class T(object):
 class Flexihtml:
 
     @property
+    def logo_image(self) -> str:
+        return self.__logo_image
+    
+    @property
     def title(self) -> str:
         return self.__title
     
@@ -84,6 +88,10 @@ class Flexihtml:
     @property
     def breadcrumb(self) -> 'Flexihtml.Breadcrumb':
         return self.__breadcrumb
+    
+    @property
+    def tabs(self) -> 'Flexihtml.Tabs':
+        return self.__tabs
 
     @property
     def table(self) -> 'Flexihtml.Table':
@@ -94,18 +102,34 @@ class Flexihtml:
         return self.__searchbox
 
     def __init__(self, title: str = '', description: str = ''):
+        self.__logo_image: str = '/flexiapp/public/images/bootstrap-logo.svg'
         self.__title: str = title
         self.__description: str = description
 
+        self.__tabs: Flexihtml.Tabs = Flexihtml.Tabs()
         self.__breadcrumb: Flexihtml.Breadcrumb = Flexihtml.Breadcrumb()
         self.__table: Flexihtml.Table = Flexihtml.Table()
         self.__searchbox: Flexihtml.Searchbox = Flexihtml.Searchbox()
     
+    def set_logo_image(self, logo_image: str):
+        self.__logo_image = logo_image
+
     def set_title(self, title: str):
         self.__title = title
 
     def set_description(self, description: str):
         self.__description = description
+
+    class Tabs:
+
+        def __init__(self):
+            self.__items: list[tuple[str, str]] = []
+
+        def __call__(self) -> list[tuple[str, str]]:
+            return self.__items
+
+        def add(self, path: str, label: str, icon: str = '<i class="fa-solid fa-desktop"></i>'):
+            self.__items.append((path, label, icon))
 
     class Breadcrumb:
 
@@ -223,6 +247,8 @@ class Flexihtml:
                 'sortable': sortable,
                 'classname': classname
             }
+
+
     class Searchbox:
         
         INPUT_TYPE_TEXT: str = 'text'

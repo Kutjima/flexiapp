@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>{{ flexihtml.title }}</title>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="maximum-scale=1" />
+    <link rel="icon" type="image/x-icon" href="{{ flexihtml.logo_image }}" />
+    <link rel="stylesheet" href="/flexiapp/public/css-js/fontawesome-free-6.1.2-web/css/all.min.css" />
+    <link rel="stylesheet" href="/flexiapp/public/css-js/bootswatch-5.3/bootstrap.min.css" />
+    <link rel="stylesheet" href="/flexiapp/public/css-js/backoffice.css?t=3" />
+    <script src="/flexiapp/public/css-js/fontawesome-free-6.1.2-web/all.js" data-auto-a11y="true"></script>
+    {% block stylesheet %}{% endblock %}
+</head>
+
+<body>
+    <header>
+        <nav class="navbar navbar-expand-lg bg-info" data-bs-theme="light">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="/">
+                    <img class="logo" src="{{ flexihtml.logo_image }}">
+                </a>
+            </div>
+        </nav>
+    </header>
+    
+    <main class="columns">
+        <section class="aside">
+			<div class="box pe-0">
+				<ul class="nav nav-tabs v-tabs pt-2">
+                    {% for path, label, icon in flexihtml.tabs() %}
+						<li class="nav-item">
+							<a class="nav-link {% if loop.first %}active{% endif %}" href="/backoffice/{{ path }}">
+								<div class="d-inline-block w-5 me-2">
+									{{ icon }}
+								</div>
+								{{ label }}
+							</a>
+						</li>
+					{% endfor %}
+				</ul>
+			</div>
+		</section>
+
+		<section class="aside">
+			<div class="box">
+                {% include 'backoffice/includes/breadcrumb.html' %}
+                {% block main_content %}{% endblock %}
+			</div>
+		</section>
+    </main>
+
+    <script src="/flexiapp/public/css-js/jquery-3.7.0.min.js"></script>
+    <script src="/flexiapp/public/css-js/popper-2.11.6.min.js"></script>
+    <script src="/flexiapp/public/css-js/bootstrap-5.3.1/bootstrap.min.js"></script>
+    <script src="/flexiapp/public/css-js/backoffice.js"></script>
+    {% block javascript %}{% endblock %}
+</body>
+
+</html>
