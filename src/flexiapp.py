@@ -4,9 +4,126 @@ import pathlib
 import sqlalchemy as sqlal
 
 from typing import Any, Callable, Optional, Union
+from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column
 
 
 FLEXIAPP_PATH = pathlib.Path(__file__).resolve().parent
+
+
+def deep_access(this: object, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Any:
+    value = default_value
+
+    for name in dotted_name.split('.'):
+        if (value := getattr(this, name, None)):
+            if isinstance(value, object):
+                this = value
+        else:
+            return default_value
+    
+    if callable(callback):
+        return callback(value)
+
+    return value
+
+
+class Fleximodel(DeclarativeBase):
+    __SQLALCHEMY_ENGINE__: sqlal.Engine = False
+
+    id: Mapped[int] = mapped_column(sqlal.Integer, primary_key=True)
+
+    @classmethod
+    def bind_engine(cls, engine: sqlal.Engine):
+        cls.__SQLALCHEMY_ENGINE__ = engine  
+
+    def session(callback: Callable[[Session, Any], Any]):
+        if Fleximodel.__SQLALCHEMY_ENGINE__:
+            return
+        
+        def wrapper(*args, **kwargs):
+            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
+                return callback(session, *args, **kwargs)
+            
+        return wrapper
+
+
+    def bind(callback: Callable[[Session, Any], Any], *args, **kwargs):
+        if not Fleximodel.__SQLALCHEMY_ENGINE__:
+            return
+        
+        with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
+            return callback(session, *args, **kwargs)
+
+    @classmethod
+    def pk_name(cls) -> tuple[str]:
+        return (column.name for column in sqlal.inspect(cls).primary_key)
+    
+    @classmethod
+    def relationships(cls) -> list[str]:
+        return [column for column, _ in sqlal.inspect(cls).relationships.items()]          
+
+    @classmethod
+    def load(cls, ident: Union[int, tuple, dict], bind_into: Optional[Callable[['Fleximodel',], 'Fleximodel']] = None) -> Optional['Fleximodel']:
+        return Fleximodel.Select(cls).load(cls, ident, bind_into)
+
+    @classmethod
+    def select(cls, offset: int = 1, max_items: int = 15) -> 'Fleximodel.Select':
+        try:
+            offset = int(offset)
+
+            if offset > 0:
+                offset = offset - 1
+            else:
+                offset = 0
+        except:
+            offset = 0
+
+        return Fleximodel.Select(cls, sqlal.func.count('*').over().label('__total_items_count__')).limit(max_items).offset(offset * max_items)
+
+
+    def get(self, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Optional[Any]:
+        return deep_access(self, dotted_name, default_value, callback)
+
+    class Select(sqlal.Select):
+        inherit_cache = True
+
+        def load(self, model: 'Fleximodel', ident: Union[int, tuple, dict], bind_into: Optional[Callable[[Any,], Any]] = None) -> Optional['Fleximodel']:
+            if not callable(bind_into):
+                bind_into = lambda x: x
+                    
+            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
+                if isinstance(ident, tuple):
+                    ident = {pk_name: ident[i] for i, pk_name in enumerate(self.pk_name())}
+
+                if (item := session.query(model).get(ident)):
+                    return bind_into(item)
+                
+        def fetch(self, params: dict = {}, bind_into: Optional[Callable[[Any,], Any]] = None):
+            if not callable(bind_into):
+                bind_into = lambda x: x
+
+            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
+                if (item := session.execute(self, params).fetchone()):
+                    if isinstance(item[0], Fleximodel):
+                        return bind_into(item[0])
+                    
+                    return bind_into(item._mapping)
+
+        def fetch_all(self, params: dict = {}, bind_into: Optional[Callable[[Any,], Any]] = None) -> tuple[list[Any], int, int, int]:
+            if not callable(bind_into):
+                bind_into = lambda x: x
+
+            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
+                if not [column for column in self._all_selected_columns if column._label == '__total_items_count__']:
+                    self.add_columns(sqlal.func.count('*').over().label('__total_items_count__'))
+
+                if (items := session.execute(self, params).fetchall()):
+                    if isinstance(items[0][0], Fleximodel):
+                        return ([bind_into(item[0]) for item in items], items[0][1], self._offset, self._limit)
+                    
+                    return ([bind_into(item._mapping) for item in items], items[0]._mapping['__total_items_count__'], self._offset, self._limit)
+            
+            # results, total_count, offset, offset_limit
+            return ([], 0, 0, 0)
 
 
 class T(object):
@@ -31,24 +148,8 @@ class T(object):
     def props(self) -> int:
         return self.__properties__
     
-    def get(self, dotted_name: str, default_value: Any = None, callback: Callable[[Any], Any] = None) -> Any:
-        this = self
-        value = default_value
-
-        for name in dotted_name.split('.'):
-            if (value := getattr(this, name, None)):
-                if isinstance(value, object):
-                    this = value
-            else:
-                return default_value
-        
-        if callable(callback):
-            return callback(value)
-
-        return value
-    
-    def dota(self, dotted_name: str, default_value: Any = None, callback: Callable[[Any], Any] = None) -> Any:
-        return self.get(dotted_name, default_value, callback)
+    def get(self, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Any:
+        return deep_access(self, dotted_name, default_value, callback)
     
     def set(self, dotted_name: str, value: Any, raise_exception: bool = True) -> bool:
         this = self
@@ -69,6 +170,21 @@ class T(object):
                     raise e
                 
                 return False
+            
+    @Fleximodel.session
+    def load(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> Optional['T']:
+        if (r := session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchone()):
+            return self.build(r._mapping)
+    
+    @Fleximodel.session
+    def fetch(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> Optional['T']:
+        if (r := session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchone()):
+            return T(self.__properties__).build(r._mapping)
+    
+    @Fleximodel.session
+    def fetch_all(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> list['T']:
+        return [T(self.__properties__).build(r._mapping) 
+                for r in session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchall()]
 
 
 class Flexihtml:
