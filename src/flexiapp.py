@@ -31,9 +31,9 @@ class Fleximodel(DeclarativeBase):
 
     id: Mapped[int] = mapped_column(sqlal.Integer, primary_key=True)
 
-    @classmethod
-    def bind_engine(cls, engine: sqlal.Engine):
-        cls.__SQLALCHEMY_ENGINE__ = engine  
+
+    def __repr__(self) -> str:
+        return f'ID: {self.id}'
 
     def session(callback: Callable[[Session, Any], Any]):
         if Fleximodel.__SQLALCHEMY_ENGINE__:
@@ -54,6 +54,10 @@ class Fleximodel(DeclarativeBase):
             return callback(session, *args, **kwargs)
 
     @classmethod
+    def bind_engine(cls, engine: sqlal.Engine):
+        cls.__SQLALCHEMY_ENGINE__ = engine  
+
+    @classmethod
     def pk_name(cls) -> tuple[str]:
         return (column.name for column in sqlal.inspect(cls).primary_key)
     
@@ -69,16 +73,18 @@ class Fleximodel(DeclarativeBase):
     def select(cls, offset: int = 1, max_items: int = 15) -> 'Fleximodel.Select':
         try:
             offset = int(offset)
-
-            if offset > 0:
-                offset = offset - 1
-            else:
-                offset = 0
         except:
-            offset = 0
+            offset = 1
 
-        return Fleximodel.Select(cls, sqlal.func.count('*').over().label('__total_items_count__')).limit(max_items).offset(offset * max_items)
-
+        return Fleximodel.Select(cls, sqlal.func.count('*').over().label('__total_items_count__')).limit(max_items).offset((offset -1 if offset > 0 else 0) * max_items)
+    
+    @classmethod
+    def create_all(cls):
+        if not Fleximodel.__SQLALCHEMY_ENGINE__:
+            return
+        
+        return cls.metadata.create_all(Fleximodel.__SQLALCHEMY_ENGINE__)
+    
 
     def get(self, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Optional[Any]:
         return deep_access(self, dotted_name, default_value, callback)
@@ -210,6 +216,10 @@ class Flexihtml:
         return self.__tabs
 
     @property
+    def form(self) -> 'Flexihtml.Form':
+        return self.__form
+    
+    @property
     def table(self) -> 'Flexihtml.Table':
         return self.__table
     
@@ -224,6 +234,7 @@ class Flexihtml:
 
         self.__tabs: Flexihtml.Tabs = Flexihtml.Tabs()
         self.__breadcrumb: Flexihtml.Breadcrumb = Flexihtml.Breadcrumb()
+        self.__form: Flexihtml.Form = Flexihtml.Form()
         self.__table: Flexihtml.Table = Flexihtml.Table()
         self.__searchbox: Flexihtml.Searchbox = Flexihtml.Searchbox()
     
@@ -235,6 +246,105 @@ class Flexihtml:
 
     def set_description(self, description: str):
         self.__description = description
+
+    @staticmethod
+    def is_column_bool(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['bool', 'boolean', 'matchtype']
+    
+    @staticmethod
+    def is_column_uuid(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['uuid']
+
+    @staticmethod
+    def is_column_text(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return Flexihtml.is_column_uuid(column) or column.type.__class__.__name__.lower() in [
+            'text', 
+            'str', 
+            'string', 
+            'autostring', 
+            'char', 
+            'nchar', 
+            'varchar', 
+            'nvarchar', 
+            'blob', 
+            'clob', 
+            'unicode',
+            'unicodetext',
+        ]
+    
+    @staticmethod
+    def is_column_int(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in [
+            'int', 
+            'integer', 
+            'numeric', 
+            'smallint', 
+            'smallinteger', 
+            'bigint', 
+            'biginteger', 
+        ]
+    
+    @staticmethod
+    def is_column_float(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in [
+            'real', 
+            'float', 
+            'decimal', 
+            'double', 
+            'double_precision',
+        ]
+    
+    @staticmethod
+    def is_column_numeric(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return Flexihtml.is_column_int(column) or Flexihtml.is_column_float(column)
+    
+    @staticmethod
+    def is_column_binary(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['binary', 'varbinary', 'largebinary']
+    
+    @staticmethod
+    def is_column_datetime(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['datetime', 'date', 'time']
+    
+    @staticmethod
+    def is_column_enum(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['enum']
+    
+    @staticmethod
+    def is_column_json(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['json']
+    
+    @staticmethod
+    def is_column_list(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['list', 'array']
+    
+    @staticmethod
+    def is_column_interval(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['interval']
+    
+    @staticmethod
+    def is_column_timestamp(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['timestamp']
+    
+    @staticmethod
+    def is_column_geometry(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['geometry']
+    
+    @staticmethod
+    def is_column_nullable(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['nulltype']
+
+    @staticmethod
+    def is_column_schema(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['schematype']
+
+    @staticmethod
+    def is_column_pickle(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['pickletype']
+    
+    @staticmethod
+    def is_column_expression_lookup(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+        return column.type.__class__.__name__.lower() in ['hasexpressionlookup']
 
     class Tabs:
 
@@ -257,6 +367,65 @@ class Flexihtml:
 
         def add(self, label: str, path: str = ''):
             self.__items.append((path, label))
+
+    class Form:
+
+        def __init__(self):
+            self.__items: dict[str, dict[str, Any]] = {}
+
+        def add(self, column: sqlal.orm.attributes.InstrumentedAttribute, *, label: str, value: Optional[Any] = None, help_text: str = '', autocomplete: Optional['Flexihtml.Form.ForeignKey'] = None, selectbox_options: dict = {}, snippet: Optional[str] = None, **kwargs: dict):
+            self.__items[column.name] = {
+                'column': column,
+                'value': value,
+                'label': label,
+                'help_text': help_text,
+                'attributes': kwargs.get('attributes', {}),
+            }
+
+        def add_inline(self):
+            pass
+
+        def __call__(self, *, method: str = 'get', action: str = ''):
+            html = f'<form action="{action}" method="{method}">'
+
+            for name, item in self.__items.items():
+                print(item['attributes'])
+                if (Flexihtml.is_column_int(column := item['column'])):
+                    if column.foreign_keys:
+                        html += f'''
+                        <div class="form-group flexinputs flexinput-{name}">
+                            <label class="form-label">{item['label']}</label>
+                            <div class="input-group">
+                                <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" />
+                                <span class="input-group-text w-25">...</span>
+                            </div>
+                            <small class="form-text text-muted">{item['help_text']}</small>
+                        </div>
+                        '''
+                    else:
+                        html += f'''
+                        <div class="form-group flexinputs flexinput-{name}">
+                            <label class="form-label">{item['label']}</label>
+                            <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" />
+                            <small class="form-text text-muted">{item['help_text']}</small>
+                        </div>
+                        '''
+                elif (Flexihtml.is_column_text(item['column'])):
+                    html += f'''
+                    <div class="form-group flexinputs flexinput-{name}">
+                        <label class="form-label">{item['label']}</label>
+                        <textarea name="{name}" class="form-control">{item['value'] or ''}</textarea>
+                        <small class="form-text text-muted">{item['help_text']}</small>
+                    </div>
+                    '''
+
+            return html + '</form>'
+
+        class Inline:
+            pass
+
+        class ForeignKey:
+            pass
     
     class Table:
 

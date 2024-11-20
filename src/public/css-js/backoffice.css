@@ -123,6 +123,7 @@
 
 main {
     margin: auto;
+    max-width: 1920px;
 }
 
 main.columns {
@@ -143,11 +144,11 @@ main.columns section.aside:nth-child(2) {
     width: calc(100% - 340px);
 }
 
-form > .form-group {
+form .form-group {
     margin-bottom: 25px;
 }
 
-form > .form-group .form-label {
+form .form-group .form-label {
     font-size: 17px;
     font-weight: bold;
 }
