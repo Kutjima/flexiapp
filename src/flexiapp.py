@@ -10,16 +10,21 @@ from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column
 FLEXIAPP_PATH = pathlib.Path(__file__).resolve().parent
 
 
-def deep_access(this: object, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Any:
+def deep_access(
+    this: object,
+    dotted_name: str,
+    default_value: Any = None,
+    callback: Optional[Callable[[Any], Any]] = None,
+) -> Any:
     value = default_value
 
-    for name in dotted_name.split('.'):
-        if (value := getattr(this, name, None)):
+    for name in dotted_name.split("."):
+        if value := getattr(this, name, None):
             if isinstance(value, object):
                 this = value
         else:
             return default_value
-    
+
     if callable(callback):
         return callback(value)
 
@@ -31,141 +36,224 @@ class Fleximodel(DeclarativeBase):
 
     id: Mapped[int] = mapped_column(sqlal.Integer, primary_key=True)
 
-
     def __repr__(self) -> str:
-        return f'ID: {self.id}'
+        return f"ID: {self.id}"
 
     def session(callback: Callable[[Session, Any], Any]):
         if Fleximodel.__SQLALCHEMY_ENGINE__:
             return
-        
+
         def wrapper(*args, **kwargs):
             with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
                 return callback(session, *args, **kwargs)
-            
-        return wrapper
 
+        return wrapper
 
     def bind(callback: Callable[[Session, Any], Any], *args, **kwargs):
         if not Fleximodel.__SQLALCHEMY_ENGINE__:
             return
-        
+
         with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
             return callback(session, *args, **kwargs)
 
     @classmethod
     def bind_engine(cls, engine: sqlal.Engine):
-        cls.__SQLALCHEMY_ENGINE__ = engine  
+        cls.__SQLALCHEMY_ENGINE__ = engine
 
     @classmethod
     def pk_name(cls) -> tuple[str]:
         return (column.name for column in sqlal.inspect(cls).primary_key)
-    
-    @classmethod
-    def relationships(cls) -> list[str]:
-        return [column for column, _ in sqlal.inspect(cls).relationships.items()]          
 
     @classmethod
-    def load(cls, ident: Union[int, tuple, dict], bind_into: Optional[Callable[['Fleximodel',], 'Fleximodel']] = None) -> Optional['Fleximodel']:
+    def relationships(cls) -> list[str]:
+        return [column for column, _ in sqlal.inspect(cls).relationships.items()]
+
+    @classmethod
+    def load(
+        cls,
+        ident: Union[int, tuple, dict],
+        bind_into: Optional[
+            Callable[
+                [
+                    "Fleximodel",
+                ],
+                "Fleximodel",
+            ]
+        ] = None,
+    ) -> Optional["Fleximodel"]:
         return Fleximodel.Select(cls).load(cls, ident, bind_into)
 
     @classmethod
-    def select(cls, offset: int = 1, max_items: int = 15) -> 'Fleximodel.Select':
+    def select(cls, offset: int = 1, max_items: int = 15) -> "Fleximodel.Select":
         try:
             offset = int(offset)
-        except:
+        except Exception:
             offset = 1
 
-        return Fleximodel.Select(cls, sqlal.func.count('*').over().label('__total_items_count__')).limit(max_items).offset((offset -1 if offset > 0 else 0) * max_items)
-    
+        return (
+            Fleximodel.Select(
+                cls, sqlal.func.count("*").over().label("__total_items_count__")
+            )
+            .limit(max_items)
+            .offset((offset - 1 if offset > 0 else 0) * max_items)
+        )
+
     @classmethod
     def create_all(cls):
         if not Fleximodel.__SQLALCHEMY_ENGINE__:
             return
-        
-        return cls.metadata.create_all(Fleximodel.__SQLALCHEMY_ENGINE__)
-    
 
-    def get(self, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Optional[Any]:
+        return cls.metadata.create_all(Fleximodel.__SQLALCHEMY_ENGINE__)
+
+    def get(
+        self,
+        dotted_name: str,
+        default_value: Any = None,
+        callback: Optional[Callable[[Any], Any]] = None,
+    ) -> Optional[Any]:
         return deep_access(self, dotted_name, default_value, callback)
 
     class Select(sqlal.Select):
         inherit_cache = True
 
-        def load(self, model: 'Fleximodel', ident: Union[int, tuple, dict], bind_into: Optional[Callable[[Any,], Any]] = None) -> Optional['Fleximodel']:
+        def load(
+            self,
+            model: "Fleximodel",
+            ident: Union[int, tuple, dict],
+            bind_into: Optional[
+                Callable[
+                    [
+                        Any,
+                    ],
+                    Any,
+                ]
+            ] = None,
+        ) -> Optional["Fleximodel"]:
             if not callable(bind_into):
-                bind_into = lambda x: x
-                    
+
+                def bind_into(x):
+                    return x
+
             with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
                 if isinstance(ident, tuple):
-                    ident = {pk_name: ident[i] for i, pk_name in enumerate(self.pk_name())}
+                    ident = {
+                        pk_name: ident[i] for i, pk_name in enumerate(self.pk_name())
+                    }
 
-                if (item := session.query(model).get(ident)):
+                if item := session.query(model).get(ident):
                     return bind_into(item)
-                
-        def fetch(self, params: dict = {}, bind_into: Optional[Callable[[Any,], Any]] = None):
+
+        def fetch(
+            self,
+            params: dict = {},
+            bind_into: Optional[
+                Callable[
+                    [
+                        Any,
+                    ],
+                    Any,
+                ]
+            ] = None,
+        ):
             if not callable(bind_into):
-                bind_into = lambda x: x
+
+                def bind_into(x):
+                    return x
 
             with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                if (item := session.execute(self, params).fetchone()):
+                if item := session.execute(self, params).fetchone():
                     if isinstance(item[0], Fleximodel):
                         return bind_into(item[0])
-                    
+
                     return bind_into(item._mapping)
 
-        def fetch_all(self, params: dict = {}, bind_into: Optional[Callable[[Any,], Any]] = None) -> tuple[list[Any], int, int, int]:
+        def fetch_all(
+            self,
+            params: dict = {},
+            bind_into: Optional[
+                Callable[
+                    [
+                        Any,
+                    ],
+                    Any,
+                ]
+            ] = None,
+        ) -> tuple[list[Any], int, int, int]:
             if not callable(bind_into):
-                bind_into = lambda x: x
+
+                def bind_into(x):
+                    return x
 
             with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                if not [column for column in self._all_selected_columns if column._label == '__total_items_count__']:
-                    self.add_columns(sqlal.func.count('*').over().label('__total_items_count__'))
+                if not [
+                    column
+                    for column in self._all_selected_columns
+                    if column._label == "__total_items_count__"
+                ]:
+                    self.add_columns(
+                        sqlal.func.count("*").over().label("__total_items_count__")
+                    )
 
-                if (items := session.execute(self, params).fetchall()):
+                if items := session.execute(self, params).fetchall():
                     if isinstance(items[0][0], Fleximodel):
-                        return ([bind_into(item[0]) for item in items], items[0][1], self._offset, self._limit)
-                    
-                    return ([bind_into(item._mapping) for item in items], items[0]._mapping['__total_items_count__'], self._offset, self._limit)
-            
+                        return (
+                            [bind_into(item[0]) for item in items],
+                            items[0][1],
+                            self._offset,
+                            self._limit,
+                        )
+
+                    return (
+                        [bind_into(item._mapping) for item in items],
+                        items[0]._mapping["__total_items_count__"],
+                        self._offset,
+                        self._limit,
+                    )
+
             # results, total_count, offset, offset_limit
             return ([], 0, 0, 0)
 
 
 class T(object):
-
     def __init__(self, properties: dict = {}):
         self.build(properties)
         self.__properties__ = properties
         self.__total_items_count__: int = -1
 
-    def build(self, properties: dict) -> 'T':
+    def build(self, properties: dict) -> "T":
         for name, value in properties.items():
             if isinstance(value, dict):
                 setattr(self, name, T(value))
             else:
                 setattr(self, name, value)
-        
+
         return self
-    
+
     def count(self) -> int:
         return self.__total_items_count__
-    
+
     def props(self) -> int:
         return self.__properties__
-    
-    def get(self, dotted_name: str, default_value: Any = None, callback: Optional[Callable[[Any], Any]] = None) -> Any:
+
+    def get(
+        self,
+        dotted_name: str,
+        default_value: Any = None,
+        callback: Optional[Callable[[Any], Any]] = None,
+    ) -> Any:
         return deep_access(self, dotted_name, default_value, callback)
-    
+
     def set(self, dotted_name: str, value: Any, raise_exception: bool = True) -> bool:
         this = self
         last_name = None
 
-        for name in dotted_name.split('.'):
-            if (old_value := getattr(this, name, None)):
+        for name in dotted_name.split("."):
+            if old_value := getattr(this, name, None):
                 last_name = name
 
-                if isinstance(old_value, object) and type(old_value).__name__ not in dir(__builtins__):
+                if isinstance(old_value, object) and type(
+                    old_value
+                ).__name__ not in dir(__builtins__):
                     this = old_value
 
         if last_name is not None:
@@ -174,61 +262,92 @@ class T(object):
             except Exception as e:
                 if raise_exception:
                     raise e
-                
+
                 return False
-            
+
     @Fleximodel.session
-    def load(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> Optional['T']:
-        if (r := session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchone()):
+    def load(
+        session: Session,
+        self,
+        statement: Union[str, sqlal.Select],
+        params: dict = {},
+        execution_options: dict = {},
+    ) -> Optional["T"]:
+        if r := session.execute(
+            sqlal.text(statement) if isinstance(statement, str) else statement,
+            params,
+            execution_options=execution_options,
+        ).fetchone():
             return self.build(r._mapping)
-    
+
     @Fleximodel.session
-    def fetch(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> Optional['T']:
-        if (r := session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchone()):
+    def fetch(
+        session: Session,
+        self,
+        statement: Union[str, sqlal.Select],
+        params: dict = {},
+        execution_options: dict = {},
+    ) -> Optional["T"]:
+        if r := session.execute(
+            sqlal.text(statement) if isinstance(statement, str) else statement,
+            params,
+            execution_options=execution_options,
+        ).fetchone():
             return T(self.__properties__).build(r._mapping)
-    
+
     @Fleximodel.session
-    def fetch_all(session: Session, self, statement: Union[str, sqlal.Select], params: dict = {}, execution_options: dict = {}) -> list['T']:
-        return [T(self.__properties__).build(r._mapping) 
-                for r in session.execute(sqlal.text(statement) if isinstance(statement, str) else statement, params, execution_options=execution_options).fetchall()]
+    def fetch_all(
+        session: Session,
+        self,
+        statement: Union[str, sqlal.Select],
+        params: dict = {},
+        execution_options: dict = {},
+    ) -> list["T"]:
+        return [
+            T(self.__properties__).build(r._mapping)
+            for r in session.execute(
+                sqlal.text(statement) if isinstance(statement, str) else statement,
+                params,
+                execution_options=execution_options,
+            ).fetchall()
+        ]
 
 
 class Flexihtml:
-
     @property
     def logo_image(self) -> str:
         return self.__logo_image
-    
+
     @property
     def title(self) -> str:
         return self.__title
-    
+
     @property
     def description(self) -> str:
         return self.__description
-    
+
     @property
-    def breadcrumb(self) -> 'Flexihtml.Breadcrumb':
+    def breadcrumb(self) -> "Flexihtml.Breadcrumb":
         return self.__breadcrumb
-    
+
     @property
-    def tabs(self) -> 'Flexihtml.Tabs':
+    def tabs(self) -> "Flexihtml.Tabs":
         return self.__tabs
 
     @property
-    def form(self) -> 'Flexihtml.Form':
+    def form(self) -> "Flexihtml.Form":
         return self.__form
-    
+
     @property
-    def table(self) -> 'Flexihtml.Table':
+    def table(self) -> "Flexihtml.Table":
         return self.__table
-    
+
     @property
-    def searchbox(self) -> 'Flexihtml.Searchbox':
+    def searchbox(self) -> "Flexihtml.Searchbox":
         return self.__searchbox
 
-    def __init__(self, title: str = '', description: str = ''):
-        self.__logo_image: str = '/flexiapp/public/images/bootstrap-logo.svg'
+    def __init__(self, title: str = "", description: str = ""):
+        self.__logo_image: str = "/flexiapp/public/images/bootstrap-logo.svg"
         self.__title: str = title
         self.__description: str = description
 
@@ -237,7 +356,7 @@ class Flexihtml:
         self.__form: Flexihtml.Form = Flexihtml.Form()
         self.__table: Flexihtml.Table = Flexihtml.Table()
         self.__searchbox: Flexihtml.Searchbox = Flexihtml.Searchbox()
-    
+
     def set_logo_image(self, logo_image: str):
         self.__logo_image = logo_image
 
@@ -249,188 +368,226 @@ class Flexihtml:
 
     @staticmethod
     def is_column_bool(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['bool', 'boolean', 'matchtype']
-    
+        return column.type.__class__.__name__.lower() in [
+            "bool",
+            "boolean",
+            "matchtype",
+        ]
+
     @staticmethod
     def is_column_uuid(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['uuid']
+        return column.type.__class__.__name__.lower() in ["uuid"]
 
     @staticmethod
     def is_column_text(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return Flexihtml.is_column_uuid(column) or column.type.__class__.__name__.lower() in [
-            'text', 
-            'str', 
-            'string', 
-            'autostring', 
-            'char', 
-            'nchar', 
-            'varchar', 
-            'nvarchar', 
-            'blob', 
-            'clob', 
-            'unicode',
-            'unicodetext',
+        return Flexihtml.is_column_uuid(
+            column
+        ) or column.type.__class__.__name__.lower() in [
+            "text",
+            "str",
+            "string",
+            "autostring",
+            "char",
+            "nchar",
+            "varchar",
+            "nvarchar",
+            "blob",
+            "clob",
+            "unicode",
+            "unicodetext",
         ]
-    
+
     @staticmethod
     def is_column_int(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
-            'int', 
-            'integer', 
-            'numeric', 
-            'smallint', 
-            'smallinteger', 
-            'bigint', 
-            'biginteger', 
+            "int",
+            "integer",
+            "numeric",
+            "smallint",
+            "smallinteger",
+            "bigint",
+            "biginteger",
         ]
-    
+
     @staticmethod
     def is_column_float(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
-            'real', 
-            'float', 
-            'decimal', 
-            'double', 
-            'double_precision',
+            "real",
+            "float",
+            "decimal",
+            "double",
+            "double_precision",
         ]
-    
+
     @staticmethod
     def is_column_numeric(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
         return Flexihtml.is_column_int(column) or Flexihtml.is_column_float(column)
-    
+
     @staticmethod
     def is_column_binary(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['binary', 'varbinary', 'largebinary']
-    
+        return column.type.__class__.__name__.lower() in [
+            "binary",
+            "varbinary",
+            "largebinary",
+        ]
+
     @staticmethod
     def is_column_datetime(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['datetime', 'date', 'time']
-    
+        return column.type.__class__.__name__.lower() in ["datetime", "date", "time"]
+
     @staticmethod
     def is_column_enum(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['enum']
-    
+        return column.type.__class__.__name__.lower() in ["enum"]
+
     @staticmethod
     def is_column_json(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['json']
-    
+        return column.type.__class__.__name__.lower() in ["json"]
+
     @staticmethod
     def is_column_list(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['list', 'array']
-    
+        return column.type.__class__.__name__.lower() in ["list", "array"]
+
     @staticmethod
     def is_column_interval(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['interval']
-    
+        return column.type.__class__.__name__.lower() in ["interval"]
+
     @staticmethod
     def is_column_timestamp(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['timestamp']
-    
+        return column.type.__class__.__name__.lower() in ["timestamp"]
+
     @staticmethod
     def is_column_geometry(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['geometry']
-    
+        return column.type.__class__.__name__.lower() in ["geometry"]
+
     @staticmethod
     def is_column_nullable(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['nulltype']
+        return column.type.__class__.__name__.lower() in ["nulltype"]
 
     @staticmethod
     def is_column_schema(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['schematype']
+        return column.type.__class__.__name__.lower() in ["schematype"]
 
     @staticmethod
     def is_column_pickle(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['pickletype']
-    
+        return column.type.__class__.__name__.lower() in ["pickletype"]
+
     @staticmethod
-    def is_column_expression_lookup(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ['hasexpressionlookup']
+    def is_column_expression_lookup(
+        column: sqlal.orm.attributes.InstrumentedAttribute,
+    ) -> bool:
+        return column.type.__class__.__name__.lower() in ["hasexpressionlookup"]
 
     class Tabs:
-
         def __init__(self):
             self.__items: list[tuple[str, str]] = []
 
         def __call__(self) -> list[tuple[str, str]]:
             return self.__items
 
-        def add(self, path: str, label: str, icon: str = '<i class="fa-solid fa-desktop"></i>'):
+        def add(
+            self,
+            path: str,
+            label: str,
+            icon: str = '<i class="fa-solid fa-desktop"></i>',
+        ):
             self.__items.append((path, label, icon))
 
     class Breadcrumb:
-
         def __init__(self):
             self.__items: list[tuple[str, str]] = []
 
         def __call__(self) -> list[tuple[str, str]]:
             return self.__items
 
-        def add(self, label: str, path: str = ''):
+        def add(self, label: str, path: str = ""):
             self.__items.append((path, label))
 
     class Form:
-
-        def __init__(self):
+        def __init__(self, *, method: str = "get", action: str = "", **kwargs):
             self.__items: dict[str, dict[str, Any]] = {}
+            self.__attributes: dict = kwargs
+            self.__attributes.update({"method": method, "action": action})
 
-        def add(self, column: sqlal.orm.attributes.InstrumentedAttribute, *, label: str, value: Optional[Any] = None, help_text: str = '', autocomplete: Optional['Flexihtml.Form.ForeignKey'] = None, selectbox_options: dict = {}, snippet: Optional[str] = None, **kwargs: dict):
+        def add(
+            self,
+            column: sqlal.orm.attributes.InstrumentedAttribute,
+            *,
+            label: str,
+            value: Optional[Any] = None,
+            help_text: str = "",
+            autocomplete: Optional["Flexihtml.Form.DependsOn"] = None,
+            selectbox_options: dict = {},
+            snippet: Optional[str] = None,
+            **attributes: dict,
+        ):
             self.__items[column.name] = {
-                'column': column,
-                'value': value,
-                'label': label,
-                'help_text': help_text,
-                'attributes': kwargs.get('attributes', {}),
+                "column": column,
+                "value": value,
+                "label": label,
+                "help_text": help_text,
+                "attributes": attributes,
             }
 
-        def add_inline(self):
-            pass
+        def __call__(self):
+            def inline_attributes(attributes: dict[str, str]) -> str:
+                return ""
 
-        def __call__(self, *, method: str = 'get', action: str = ''):
-            html = f'<form action="{action}" method="{method}">'
+            html = f"<form {inline_attributes(self.__attributes)}>"
 
             for name, item in self.__items.items():
-                print(item['attributes'])
-                if (Flexihtml.is_column_int(column := item['column'])):
-                    if column.foreign_keys:
-                        html += f'''
-                        <div class="form-group flexinputs flexinput-{name}">
-                            <label class="form-label">{item['label']}</label>
-                            <div class="input-group">
-                                <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" />
-                                <span class="input-group-text w-25">...</span>
-                            </div>
-                            <small class="form-text text-muted">{item['help_text']}</small>
-                        </div>
-                        '''
-                    else:
-                        html += f'''
-                        <div class="form-group flexinputs flexinput-{name}">
-                            <label class="form-label">{item['label']}</label>
-                            <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" />
-                            <small class="form-text text-muted">{item['help_text']}</small>
-                        </div>
-                        '''
-                elif (Flexihtml.is_column_text(item['column'])):
-                    html += f'''
+                html += f"""
                     <div class="form-group flexinputs flexinput-{name}">
                         <label class="form-label">{item['label']}</label>
-                        <textarea name="{name}" class="form-control">{item['value'] or ''}</textarea>
-                        <small class="form-text text-muted">{item['help_text']}</small>
-                    </div>
-                    '''
+                """
 
-            return html + '</form>'
+                if Flexihtml.is_column_int(
+                    column := item["column"]
+                ) or Flexihtml.is_column_float(column):
+                    if column.foreign_keys:
+                        html += f"""
+                        <div class="input-group">
+                            <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" {inline_attributes(item['attributes'])} />
+                            <span class="input-group-text w-25">...</span>
+                        </div>
+                        """
+                    else:
+                        html += f"""
+                        <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" {inline_attributes(item['attributes'])} />
+                        """
+                elif Flexihtml.is_column_text(column):
+                    html += f'<textarea name="{name}" class="form-control" {inline_attributes(item['attributes'])}>{item['value'] or ''}</textarea>'
+                elif Flexihtml.is_column_bool(column) or Flexihtml.is_column_enum(
+                    column
+                ):
+                    if not isinstance(item["value"], list):
+                        item["value"] = list(item["value"])
+
+                    html += f'<select name="{name}" class="form-control" {inline_attributes(item['attributes'])}>'
+
+                    if not (options := item["selectbox_options"]):
+                        options = {0: "False", 1: "True"}
+
+                    for opt_value, opt_label in options.items():
+                        html += f'<option value="{opt_value}" {"selected" if opt_value in item["value"] else ""}>{opt_label}</option>'
+
+                    html += "</select>"
+
+                html += f"""
+                        <small class="form-text text-muted">{item['help_text'] or ''}</small>
+                    </div>
+                """
+
+            return html + "</form>"
 
         class Inline:
             pass
 
-        class ForeignKey:
+        class DependsOn:
             pass
-    
-    class Table:
 
+    class Table:
         MAX_ITEMS_PER_PAGE: int = 15
-        PAGINATION_PAGE_QNAME: str = 'pg'
+        PAGINATION_PAGE_QNAME: str = "pg"
         PAGINATION_MAX_BUTTONS: int = 11
 
         @property
@@ -440,7 +597,7 @@ class Flexihtml:
         @property
         def offset_limit(self) -> int:
             return self.__offset_limit
-        
+
         @property
         def total_items(self) -> int:
             return self.__total_items
@@ -453,12 +610,19 @@ class Flexihtml:
             self.__total_items: int = 0
             self.__paginations: list[tuple[int, str, bool]] = []
 
-        def __call__(self, items: list[object], total_items: int, offset: int = 0, item_per_page: int = MAX_ITEMS_PER_PAGE, nb_buttons: int = PAGINATION_MAX_BUTTONS) -> 'Flexihtml.Table':
+        def __call__(
+            self,
+            items: list[object],
+            total_items: int,
+            offset: int = 0,
+            item_per_page: int = MAX_ITEMS_PER_PAGE,
+            nb_buttons: int = PAGINATION_MAX_BUTTONS,
+        ) -> "Flexihtml.Table":
             self.__total_items = total_items
             self.__offset = offset + 1
             self.__offset_limit = offset + item_per_page
             self.__paginations = []
-            
+
             if total_items == 0:
                 self.__offset = 0
 
@@ -472,21 +636,25 @@ class Flexihtml:
                     self.__items[line_uuid][column_uuid] = {}
                     self.__items[line_uuid][column_uuid].update(column)
 
-                    if callable(callback := column['callback']):
-                        self.__items[line_uuid][column_uuid]['callback'] = callback(item)
+                    if callable(callback := column["callback"]):
+                        self.__items[line_uuid][column_uuid]["callback"] = callback(
+                            item
+                        )
                     elif (method := getattr(item, callback, None)) and callable(method):
-                        self.__items[line_uuid][column_uuid]['callback'] = method()
-                    elif (value := getattr(item, callback, None)):
-                        self.__items[line_uuid][column_uuid]['callback'] = value
+                        self.__items[line_uuid][column_uuid]["callback"] = method()
+                    elif value := getattr(item, callback, None):
+                        self.__items[line_uuid][column_uuid]["callback"] = value
                     else:
-                        self.__items[line_uuid][column_uuid]['callback'] = str(callback)
+                        self.__items[line_uuid][column_uuid]["callback"] = str(callback)
 
             if total_items <= 0:
                 return self
-            
-            if (current := math.ceil(offset / item_per_page) + 1) > (max_button := math.ceil(total_items / item_per_page)):
+
+            if (current := math.ceil(offset / item_per_page) + 1) > (
+                max_button := math.ceil(total_items / item_per_page)
+            ):
                 current = max_button
-            
+
             if current < 1:
                 current = 1
 
@@ -496,21 +664,29 @@ class Flexihtml:
             if current <= nb_buttons / 2:
                 self.__paginations = [i + 1 for i in range(0, nb_buttons)]
             elif current > max_button - (nb_buttons / 2):
-                self.__paginations = [i + 1 for i in range(max_button - nb_buttons, max_button)]
+                self.__paginations = [
+                    i + 1 for i in range(max_button - nb_buttons, max_button)
+                ]
             else:
-                self.__paginations = [i + 1 for i in range(current - math.ceil(nb_buttons / 2), current + math.floor(nb_buttons / 2))]
+                self.__paginations = [
+                    i + 1
+                    for i in range(
+                        current - math.ceil(nb_buttons / 2),
+                        current + math.floor(nb_buttons / 2),
+                    )
+                ]
 
             if not self.__paginations:
                 return self
 
             for i, n in enumerate(self.__paginations):
                 self.__paginations[i] = (n, str(n), n == current)
-            
+
             if self.__paginations[0][0] > 1:
-                self.__paginations.insert(0, (1, '1 ... ', False))
-            
+                self.__paginations.insert(0, (1, "1 ... ", False))
+
             if self.__paginations[-1][0] < max_button:
-                self.__paginations.append((max_button, f' ... {max_button}', False))
+                self.__paginations.append((max_button, f" ... {max_button}", False))
 
             return self
 
@@ -519,45 +695,66 @@ class Flexihtml:
 
         def labels(self) -> tuple[str, dict[str, Any]]:
             return self.__labels.items()
-       
+
         def paginations(self) -> list[tuple[int, str, bool]]:
             return self.__paginations
 
-        def add(self, name: str, callback: Union[str, Callable[[object], str]], label: str = '', hidden: int = 0, sortable: int = 1, classname: str = ''):
+        def add(
+            self,
+            name: str,
+            callback: Union[str, Callable[[object], str]],
+            label: str = "",
+            hidden: int = 0,
+            sortable: int = 1,
+            classname: str = "",
+        ):
             self.__labels[str(uuid.uuid5(uuid.NAMESPACE_OID, name))[0:6]] = {
-                'name': name,
-                'callback': callback,
-                'label': label if label else name.title(),
-                'hidden': hidden,
-                'sortable': sortable,
-                'classname': classname
+                "name": name,
+                "callback": callback,
+                "label": label if label else name.title(),
+                "hidden": hidden,
+                "sortable": sortable,
+                "classname": classname,
             }
 
-
     class Searchbox:
-        
-        INPUT_TYPE_TEXT: str = 'text'
-        INPUT_TYPE_NUMBER: str = 'number'
-        INPUT_TYPE_DATE: str = 'datetime'
-        INPUT_TYPE_DATETIME: str = 'datetime'
-        INPUT_TYPE_TIMESTAMP: str = 'timestamp'
-        INPUT_TYPE_BOOLEAN: str = 'boolean'
-        INPUT_TYPE_ENUM: str = 'enum'
-        INPUT_TYPE_NULLTYPE: str = 'nulltype'
-        INPUT_TYPE_LIST: str = 'list'
-        INPUT_TYPE_GEOMETRY: str = 'geometry'
+        INPUT_TYPE_TEXT: str = "text"
+        INPUT_TYPE_NUMBER: str = "number"
+        INPUT_TYPE_DATE: str = "datetime"
+        INPUT_TYPE_DATETIME: str = "datetime"
+        INPUT_TYPE_TIMESTAMP: str = "timestamp"
+        INPUT_TYPE_BOOLEAN: str = "boolean"
+        INPUT_TYPE_ENUM: str = "enum"
+        INPUT_TYPE_NULLTYPE: str = "nulltype"
+        INPUT_TYPE_LIST: str = "list"
+        INPUT_TYPE_GEOMETRY: str = "geometry"
 
         KNOWN_INPUTS: dict = {
-            INPUT_TYPE_TEXT: ['text', 'string', 'autostring', 'varchar', 'oid', 'inet', 'domain'],
-            INPUT_TYPE_NUMBER: ['integer', 'numeric', 'smallint', 'bigint', 'real', 'double_precision'],
-            INPUT_TYPE_BOOLEAN: ['bool', 'boolean'],
-            INPUT_TYPE_DATE: ['datetime', 'date'],
-            INPUT_TYPE_DATETIME: ['datetime', 'date'],
-            INPUT_TYPE_NULLTYPE: ['nulltype'],
-            INPUT_TYPE_ENUM: ['enum'],
-            INPUT_TYPE_LIST: ['list', 'array'],
-            INPUT_TYPE_GEOMETRY: ['geometry'],
-            INPUT_TYPE_TIMESTAMP: ['timestamp'],
+            INPUT_TYPE_TEXT: [
+                "text",
+                "string",
+                "autostring",
+                "varchar",
+                "oid",
+                "inet",
+                "domain",
+            ],
+            INPUT_TYPE_NUMBER: [
+                "integer",
+                "numeric",
+                "smallint",
+                "bigint",
+                "real",
+                "double_precision",
+            ],
+            INPUT_TYPE_BOOLEAN: ["bool", "boolean"],
+            INPUT_TYPE_DATE: ["datetime", "date"],
+            INPUT_TYPE_DATETIME: ["datetime", "date"],
+            INPUT_TYPE_NULLTYPE: ["nulltype"],
+            INPUT_TYPE_ENUM: ["enum"],
+            INPUT_TYPE_LIST: ["list", "array"],
+            INPUT_TYPE_GEOMETRY: ["geometry"],
+            INPUT_TYPE_TIMESTAMP: ["timestamp"],
         }
 
         def __init__(self):
@@ -566,158 +763,207 @@ class Flexihtml:
         def __call__(self, select: sqlal.Select, query_params: dict) -> sqlal.Select:
             for column_name, searchbox in self.items():
                 sa_column = False
-                sb_name = f'{column_name}_sb0'
-                sb_value_1 = f'{column_name}_sb1'
-                sb_value_2 = f'{column_name}_sb2'
+                sb_name = f"{column_name}_sb0"
+                sb_value_1 = f"{column_name}_sb1"
+                sb_value_2 = f"{column_name}_sb2"
 
-                if searchbox['is_subquery']:
+                if searchbox["is_subquery"]:
                     for sub_select in select._raw_columns:
                         if sub_select.name == column_name:
                             sa_column = sub_select
                             break
                 else:
-                    sa_column = searchbox['column']
-                
-                if sa_column is not False and (search_value_1 := query_params.get(sb_value_1, '').strip()):
-                    self.__items[column_name]['input_value_1'] = search_value_1
-                    self.__items[column_name]['input_value_2'] = (search_value_2 := query_params.get(sb_value_2, '').strip())
-                    self.__items[column_name]['exp_selected'] = (exp := query_params.get(sb_name, '').strip())
+                    sa_column = searchbox["column"]
 
-                    if callable(callback := searchbox['callback']):
-                        select = callback(select, sa_column, exp, search_value_1, search_value_2)
+                if sa_column is not False and (
+                    search_value_1 := query_params.get(sb_value_1, "").strip()
+                ):
+                    self.__items[column_name]["input_value_1"] = search_value_1
+                    self.__items[column_name]["input_value_2"] = (
+                        search_value_2 := query_params.get(sb_value_2, "").strip()
+                    )
+                    self.__items[column_name]["exp_selected"] = (
+                        exp := query_params.get(sb_name, "").strip()
+                    )
+
+                    if callable(callback := searchbox["callback"]):
+                        select = callback(
+                            select, sa_column, exp, search_value_1, search_value_2
+                        )
                     else:
-                        if exp == 'is_equal':
+                        if exp == "is_equal":
                             select = select.where(sa_column == search_value_1)
-                        elif exp == 'is_not_equal':
+                        elif exp == "is_not_equal":
                             select = select.where(sa_column != search_value_1)
-                        elif exp == 'is_less_than':
+                        elif exp == "is_less_than":
                             select = select.where(sa_column < search_value_1)
-                        elif exp == 'is_less_equal_than':
+                        elif exp == "is_less_equal_than":
                             select = select.where(sa_column <= search_value_1)
-                        elif exp == 'is_greater_than':
+                        elif exp == "is_greater_than":
                             select = select.where(sa_column > search_value_1)
-                        elif exp == 'is_greater_equal_than':
+                        elif exp == "is_greater_equal_than":
                             select = select.where(sa_column >= search_value_1)
-                        elif exp == 'is_like':
-                            select = select.where(sa_column.ilike(f'%{search_value_1}%'))
-                        elif exp == 'is_not_like':
-                            select = select.where(sa_column.not_ilike(f'%{search_value_1}%'))
-                        elif exp == 'is_null':
+                        elif exp == "is_like":
+                            select = select.where(
+                                sa_column.ilike(f"%{search_value_1}%")
+                            )
+                        elif exp == "is_not_like":
+                            select = select.where(
+                                sa_column.not_ilike(f"%{search_value_1}%")
+                            )
+                        elif exp == "is_null":
                             select = select.where(sa_column == sqlal.null())
-                        elif exp == 'is_not_null':
+                        elif exp == "is_not_null":
                             select = select.where(sa_column != sqlal.null())
-                        elif exp in ['is_between', 'is_not_between'] and search_value_2:
-                            if exp == 'is_between':
-                                select = select.where(sa_column.between(search_value_1, search_value_2))
+                        elif exp in ["is_between", "is_not_between"] and search_value_2:
+                            if exp == "is_between":
+                                select = select.where(
+                                    sa_column.between(search_value_1, search_value_2)
+                                )
                             else:
-                                select = select.where(sqlal.not_(sa_column.between(search_value_1, search_value_2)))
-                        elif exp in ['is_in', 'is_not_in']:
-                            #TODO: not yet test
-                            if exp == 'is_in':
-                                select = select.where(sa_column.in_(search_value_1.split(',')))
+                                select = select.where(
+                                    sqlal.not_(
+                                        sa_column.between(
+                                            search_value_1, search_value_2
+                                        )
+                                    )
+                                )
+                        elif exp in ["is_in", "is_not_in"]:
+                            # TODO: not yet test
+                            if exp == "is_in":
+                                select = select.where(
+                                    sa_column.in_(search_value_1.split(","))
+                                )
                             else:
-                                select = select.where(sa_column.not_in(search_value_1.split(',')))
-                        elif exp in ['is_point', 'is_polygon', 'is_in_radius']:
+                                select = select.where(
+                                    sa_column.not_in(search_value_1.split(","))
+                                )
+                        elif exp in ["is_point", "is_polygon", "is_in_radius"]:
                             continue
                         else:
                             continue
 
             return select
-        
+
         def items(self) -> tuple[str, dict[str, Any]]:
             return self.__items.items()
 
-        def add(self, column: sqlal.Column, label: str, help_text: str = '', input_value_1: Union[int, str] = '', input_value_2: Union[int, str] = '', is_subquery: bool = False):
-            html_input_tag = ''
-            html_input_type = ''
+        def add(
+            self,
+            column: sqlal.Column,
+            label: str,
+            help_text: str = "",
+            input_value_1: Union[int, str] = "",
+            input_value_2: Union[int, str] = "",
+            is_subquery: bool = False,
+        ):
+            html_input_tag = ""
+            html_input_type = ""
             exp_options = {}
             value_options = {}
 
             for column_type, column_types in self.KNOWN_INPUTS.items():
                 if column.type.__class__.__name__.lower() in column_types:
                     if column_type in [self.INPUT_TYPE_TEXT]:
-                        html_input_tag = 'textarea'
+                        html_input_tag = "textarea"
                         exp_options = {
-                            '': '---',
-                            'is_equal': 'is equal',
-                            'is_not_equal': 'is not equal',
-                            'is_like': 'is like',
-                            'is_not_like': 'is not like',
-                            'is_null': 'is null',
-                            'is_not_null': 'is not null',
+                            "": "---",
+                            "is_equal": "is equal",
+                            "is_not_equal": "is not equal",
+                            "is_like": "is like",
+                            "is_not_like": "is not like",
+                            "is_null": "is null",
+                            "is_not_null": "is not null",
                         }
-                    elif column_type in [self.INPUT_TYPE_ENUM, self.INPUT_TYPE_BOOLEAN, self.INPUT_TYPE_NULLTYPE]:
-                        html_input_tag = 'select'
+                    elif column_type in [
+                        self.INPUT_TYPE_ENUM,
+                        self.INPUT_TYPE_BOOLEAN,
+                        self.INPUT_TYPE_NULLTYPE,
+                    ]:
+                        html_input_tag = "select"
                         exp_options = {
-                            '': '---',
-                            'is_equal': 'is',
-                            'is_not_equal': 'is not',
+                            "": "---",
+                            "is_equal": "is",
+                            "is_not_equal": "is not",
                         }
 
                         if column_type == self.INPUT_TYPE_BOOLEAN:
                             value_options = {
-                                0: 'False', 
-                                1: 'True',
+                                0: "False",
+                                1: "True",
                             }
                         elif column_type == self.INPUT_TYPE_NULLTYPE:
-                            value_options = {'null': 'NULL'}
+                            value_options = {"null": "NULL"}
                         else:
                             value_options = {}
                     elif column_type in [self.INPUT_TYPE_LIST]:
-                        html_input_tag = 'textarea'
+                        html_input_tag = "textarea"
                         exp_options = {
-                            '': '---',
-                            'is_in': 'is in',
-                            'is_not_in': 'is not in',
+                            "": "---",
+                            "is_in": "is in",
+                            "is_not_in": "is not in",
                         }
                     elif column_type in [self.INPUT_TYPE_GEOMETRY]:
-                        html_input_tag = 'input'
-                        html_input_type = 'text'
+                        html_input_tag = "input"
+                        html_input_type = "text"
                         exp_options = {
-                            '': '---',
-                            'is_point': 'is point',
-                            'is_polygon': 'is polygon',
-                            'is_in_radius': 'is in radius',
+                            "": "---",
+                            "is_point": "is point",
+                            "is_polygon": "is polygon",
+                            "is_in_radius": "is in radius",
                         }
                     else:
-                        html_input_tag = 'input'
+                        html_input_tag = "input"
 
-                        if column_type in [self.INPUT_TYPE_TIMESTAMP, self.INPUT_TYPE_DATE, self.INPUT_TYPE_DATETIME]:
-                            html_input_type = 'date'
+                        if column_type in [
+                            self.INPUT_TYPE_TIMESTAMP,
+                            self.INPUT_TYPE_DATE,
+                            self.INPUT_TYPE_DATETIME,
+                        ]:
+                            html_input_type = "date"
                         else:
                             html_input_type = self.INPUT_TYPE_NUMBER
 
                         exp_options = {
-                            '': '---',
-                            'is_equal': 'is equal',
-                            'is_not_equal': 'is not equal',
-                            'is_less_than': 'is less than',
-                            'is_less_equal_than': 'is less equal than',
-                            'is_greater_than': 'is greater than',
-                            'is_greater_equal_than': 'is greater equal than',
-                            'is_between': 'is between .. and ..',
-                            'is_not_between': 'is not between .. and ..',
-                            'is_null': 'is null',
-                            'is_not_null': 'is not null',
+                            "": "---",
+                            "is_equal": "is equal",
+                            "is_not_equal": "is not equal",
+                            "is_less_than": "is less than",
+                            "is_less_equal_than": "is less equal than",
+                            "is_greater_than": "is greater than",
+                            "is_greater_equal_than": "is greater equal than",
+                            "is_between": "is between .. and ..",
+                            "is_not_between": "is not between .. and ..",
+                            "is_null": "is null",
+                            "is_not_null": "is not null",
                         }
                     break
             else:
                 return
 
             self.__items[column.name] = {
-                'column': column, 
-                'label': label, 
-                'help_text': help_text, 
-                'html_input_tag': html_input_tag,
-                'html_input_type': html_input_type, 
-                'input_value_1': input_value_1,
-                'input_value_2': input_value_2,
-                'exp_options': exp_options, 
-                'exp_selected': '',
-                'value_options': value_options, 
-                'callback': None,
-                'is_subquery': is_subquery,
+                "column": column,
+                "label": label,
+                "help_text": help_text,
+                "html_input_tag": html_input_tag,
+                "html_input_type": html_input_type,
+                "input_value_1": input_value_1,
+                "input_value_2": input_value_2,
+                "exp_options": exp_options,
+                "exp_selected": "",
+                "value_options": value_options,
+                "callback": None,
+                "is_subquery": is_subquery,
             }
 
-        def reset_column(self, column: sqlal.Column, exp_options: dict[str, str] = {}, value_type: str = '', value_options: dict[str, str] = {}, callback: Callable[[sqlal.Select, sqlal.Column, str, str, Optional[str]], sqlal.Select] = None):
+        def reset_column(
+            self,
+            column: sqlal.Column,
+            exp_options: dict[str, str] = {},
+            value_type: str = "",
+            value_options: dict[str, str] = {},
+            callback: Callable[
+                [sqlal.Select, sqlal.Column, str, str, Optional[str]], sqlal.Select
+            ] = None,
+        ):
             pass
