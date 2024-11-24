@@ -1,13 +1,26 @@
 import uuid
 import math
+import json
+import hashlib
 import pathlib
-import sqlalchemy as sqlal
 
 from typing import Any, Callable, Optional, Union
-from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column
-
+from sqlalchemy import Engine, Column, Integer, Select, Table, inspect, text, func
+from sqlalchemy.orm import (
+    Session,
+    DeclarativeBase,
+    RelationshipDirection,
+    Mapped,
+    mapped_column,
+)
+from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.relationships import _RelationshipDeclared
 
 FLEXIAPP_PATH = pathlib.Path(__file__).resolve().parent
+
+
+def uuid_text(text: str) -> str:
+    return str(uuid.UUID(hex=hashlib.md5(text.encode("UTF-8")).hexdigest()))
 
 
 def deep_access(
@@ -31,10 +44,94 @@ def deep_access(
     return value
 
 
-class Fleximodel(DeclarativeBase):
-    __SQLALCHEMY_ENGINE__: sqlal.Engine = False
+class _Flexinput:
+    @property
+    def id(self) -> str:
+        return self._id
 
-    id: Mapped[int] = mapped_column(sqlal.Integer, primary_key=True)
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def __init__(
+        self,
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        datalist: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+    ):
+        self._name: str = name
+        self.value: Union[int, float, str] = value
+        self.datalist: dict[str, str] = datalist
+        self.attributes: dict[str, str] = attributes
+        self.attributes["id"] = self._id = f"flexinput-{uuid_text(self._name)[0:8]}"
+
+    def set_value(self, value: Union[int, float, str]):
+        self.value = value
+
+    def set_attributes(self, attributes: dict[str, str]):
+        self.attributes = attributes
+        self.attributes["id"] = self._id
+        self.attributes["name"] = self._name
+
+    def __call__(self) -> str:
+        return self.build()
+    
+    def build(self) -> str:
+        raise NotImplementedError()
+
+    @staticmethod
+    def inline_attributes(attributes: dict) -> str:
+        html = ""
+
+        for name, value in attributes.items():
+            if isinstance(value, (list, tuple, dict)):
+                value = (
+                    json.dumps(value).replace('"', "&quot;")
+                    # .replace("&", "&amp;")
+                    # .replace("'", "&#039;")
+                    # .replace("<", "&lt;")
+                    # .replace(">", "&gt;")
+                )
+
+            html += f'{name}="{value}" '
+
+        return html.strip()
+
+
+class Input(_Flexinput):
+    pass
+
+
+class Textarea(_Flexinput):
+    pass
+
+
+class Selectbox(_Flexinput):
+    def __init__(
+        self,
+        name: str,
+        value: int | float | str = "",
+        *,
+        datalist: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+        options: dict[str, str] = {},
+        option_values: dict[str, str] = {},
+    ):
+        super().__init__(name, value, datalist=datalist, attributes=attributes)
+        self.options = options
+        self.option_values = option_values
+
+
+class Listbox(_Flexinput):
+    pass
+
+
+class Fleximodel(DeclarativeBase):
+    __SQLALCHEMY_ENGINE__: Engine = False
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     def __repr__(self) -> str:
         return f"ID: {self.id}"
@@ -57,16 +154,16 @@ class Fleximodel(DeclarativeBase):
             return callback(session, *args, **kwargs)
 
     @classmethod
-    def bind_engine(cls, engine: sqlal.Engine):
+    def bind_engine(cls, engine: Engine):
         cls.__SQLALCHEMY_ENGINE__ = engine
 
     @classmethod
     def pk_name(cls) -> tuple[str]:
-        return (column.name for column in sqlal.inspect(cls).primary_key)
+        return (column.name for column in inspect(cls).primary_key)
 
     @classmethod
     def relationships(cls) -> list[str]:
-        return [column for column, _ in sqlal.inspect(cls).relationships.items()]
+        return [column for column, _ in inspect(cls).relationships.items()]
 
     @classmethod
     def load(
@@ -92,7 +189,7 @@ class Fleximodel(DeclarativeBase):
 
         return (
             Fleximodel.Select(
-                cls, sqlal.func.count("*").over().label("__total_items_count__")
+                cls, func.count("*").over().label("__total_items_count__")
             )
             .limit(max_items)
             .offset((offset - 1 if offset > 0 else 0) * max_items)
@@ -113,7 +210,7 @@ class Fleximodel(DeclarativeBase):
     ) -> Optional[Any]:
         return deep_access(self, dotted_name, default_value, callback)
 
-    class Select(sqlal.Select):
+    class Select(Select):
         inherit_cache = True
 
         def load(
@@ -191,7 +288,7 @@ class Fleximodel(DeclarativeBase):
                     if column._label == "__total_items_count__"
                 ]:
                     self.add_columns(
-                        sqlal.func.count("*").over().label("__total_items_count__")
+                        func.count("*").over().label("__total_items_count__")
                     )
 
                 if items := session.execute(self, params).fetchall():
@@ -269,12 +366,12 @@ class T(object):
     def load(
         session: Session,
         self,
-        statement: Union[str, sqlal.Select],
+        statement: Union[str, Select],
         params: dict = {},
         execution_options: dict = {},
     ) -> Optional["T"]:
         if r := session.execute(
-            sqlal.text(statement) if isinstance(statement, str) else statement,
+            text(statement) if isinstance(statement, str) else statement,
             params,
             execution_options=execution_options,
         ).fetchone():
@@ -284,12 +381,12 @@ class T(object):
     def fetch(
         session: Session,
         self,
-        statement: Union[str, sqlal.Select],
+        statement: Union[str, Select],
         params: dict = {},
         execution_options: dict = {},
     ) -> Optional["T"]:
         if r := session.execute(
-            sqlal.text(statement) if isinstance(statement, str) else statement,
+            text(statement) if isinstance(statement, str) else statement,
             params,
             execution_options=execution_options,
         ).fetchone():
@@ -299,14 +396,14 @@ class T(object):
     def fetch_all(
         session: Session,
         self,
-        statement: Union[str, sqlal.Select],
+        statement: Union[str, Select],
         params: dict = {},
         execution_options: dict = {},
     ) -> list["T"]:
         return [
             T(self.__properties__).build(r._mapping)
             for r in session.execute(
-                sqlal.text(statement) if isinstance(statement, str) else statement,
+                text(statement) if isinstance(statement, str) else statement,
                 params,
                 execution_options=execution_options,
             ).fetchall()
@@ -367,7 +464,7 @@ class Flexihtml:
         self.__description = description
 
     @staticmethod
-    def is_column_bool(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_bool(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
             "bool",
             "boolean",
@@ -375,11 +472,11 @@ class Flexihtml:
         ]
 
     @staticmethod
-    def is_column_uuid(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_uuid(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["uuid"]
 
     @staticmethod
-    def is_column_text(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_text(column: InstrumentedAttribute) -> bool:
         return Flexihtml.is_column_uuid(
             column
         ) or column.type.__class__.__name__.lower() in [
@@ -398,7 +495,7 @@ class Flexihtml:
         ]
 
     @staticmethod
-    def is_column_int(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_int(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
             "int",
             "integer",
@@ -410,7 +507,7 @@ class Flexihtml:
         ]
 
     @staticmethod
-    def is_column_float(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_float(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
             "real",
             "float",
@@ -420,11 +517,11 @@ class Flexihtml:
         ]
 
     @staticmethod
-    def is_column_numeric(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_numeric(column: InstrumentedAttribute) -> bool:
         return Flexihtml.is_column_int(column) or Flexihtml.is_column_float(column)
 
     @staticmethod
-    def is_column_binary(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_binary(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in [
             "binary",
             "varbinary",
@@ -432,50 +529,243 @@ class Flexihtml:
         ]
 
     @staticmethod
-    def is_column_datetime(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_datetime(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["datetime", "date", "time"]
 
     @staticmethod
-    def is_column_enum(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_enum(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["enum"]
 
     @staticmethod
-    def is_column_json(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_json(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["json"]
 
     @staticmethod
-    def is_column_list(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_list(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["list", "array"]
 
     @staticmethod
-    def is_column_interval(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_interval(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["interval"]
 
     @staticmethod
-    def is_column_timestamp(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_timestamp(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["timestamp"]
 
     @staticmethod
-    def is_column_geometry(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_geometry(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["geometry"]
 
     @staticmethod
-    def is_column_nullable(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_nullable(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["nulltype"]
 
     @staticmethod
-    def is_column_schema(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_schema(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["schematype"]
 
     @staticmethod
-    def is_column_pickle(column: sqlal.orm.attributes.InstrumentedAttribute) -> bool:
+    def is_column_pickle(column: InstrumentedAttribute) -> bool:
         return column.type.__class__.__name__.lower() in ["pickletype"]
 
     @staticmethod
     def is_column_expression_lookup(
-        column: sqlal.orm.attributes.InstrumentedAttribute,
+        column: InstrumentedAttribute,
     ) -> bool:
         return column.type.__class__.__name__.lower() in ["hasexpressionlookup"]
+
+    @staticmethod
+    def input(
+        name: str,
+        type: str = "text",
+        value: Union[int, float, str] = "",
+        *,
+        datalist: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+    ) -> str:
+        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
+        attributes["name"] = name
+        attributes["type"] = type
+        attributes["value"] = value
+
+        if "class" not in attributes:
+            attributes["class"] = "form-control"
+
+        return f"<input {Flexihtml.inline_attributes(attributes)} />"
+
+    @staticmethod
+    def input_hidden(
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        attributes: dict[str, str] = {},
+    ) -> str:
+        return Flexihtml.input(name, "hidden", value, attributes=attributes)
+
+    @staticmethod
+    def input_numeric(
+        name: str, value: Union[int, float] = 0, *, attributes: dict[str, str] = {}
+    ) -> str:
+        return Flexihtml.input(name, "number", value, attributes=attributes)
+
+    @staticmethod
+    def input_text(
+        name: str,
+        value: str = "",
+        *,
+        datalist: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+    ) -> str:
+        return Flexihtml.input(
+            name, "text", value, datalist=datalist, attributes=attributes
+        )
+
+    @staticmethod
+    def input_range(
+        name: str, value: Union[int, float] = 0, *, attributes: dict[str, str] = {}
+    ) -> str:
+        if "class" not in attributes:
+            attributes["class"] = "form-range"
+
+        return Flexihtml.input(name, "range", value, attributes=attributes)
+
+    @staticmethod
+    def input_checkbox(
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        label: str,
+        to_switch: bool = False,
+        attributes: dict[str, str] = {},
+    ) -> str:
+        if "class" not in attributes:
+            attributes["class"] = "form-check-input"
+
+        html = f'<div class="form-check{" form-switch" if to_switch else ""}">'
+        html += Flexihtml.input(name, "checkbox", value, attributes=attributes)
+        html += (
+            f'<label class="form-check-label" for="{attributes["id"]}">{label}</label>'
+        )
+        html += "</div>"
+
+        return html
+
+    @staticmethod
+    def input_switch(
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        label: str,
+        attributes: dict[str, str] = {},
+    ) -> str:
+        return Flexihtml.input_checkbox(
+            name, value, label=label, to_switch=True, attributes=attributes
+        )
+
+    @staticmethod
+    def textarea(name: str, value: str = "", *, attributes: dict[str, str] = {}) -> str:
+        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
+        attributes["name"] = name
+
+        if "class" not in attributes:
+            attributes["class"] = "form-control"
+
+        return f"<textarea {Flexihtml.inline_attributes(attributes)}>{value}</textarea>"
+
+    @staticmethod
+    def selectbox(
+        name: str,
+        value: Union[int, float, str, list[str]] = [],
+        *,
+        items: dict[str, str],
+        attributes: dict[str, str] = {},
+        item_attributes: dict[str, str] = {},
+    ) -> str:
+        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
+        attributes["name"] = name
+
+        if "class" not in attributes:
+            attributes["class"] = "form-select"
+
+        if not isinstance(value, list):
+            value = list(value or "")
+
+        html = f"<select {Flexihtml.inline_attributes(attributes)}>"
+
+        for item_value, item_label in items.items():
+            tmp_attributes = {
+                "value": item_value,
+                "data-optionvalue": item_attributes.get(item_value, ""),
+            }
+
+            if item_value in value:
+                tmp_attributes["selected"] = 1
+
+            html += f"<option {Flexihtml.inline_attributes(tmp_attributes)}>{item_label}</option>"
+
+        html += "</select>"
+
+        return html
+
+    @staticmethod
+    def listbox(
+        name: str,
+        input: str = "",
+        *,
+        items: dict[str, str],
+        attributes: dict[str, str] = {},
+        item_attributes: dict[str, str] = {},
+    ) -> str:
+        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
+        attributes["list-name"] = name
+
+        html = f"<div {Flexihtml.inline_attributes(attributes)}>"
+        html += f'<div class="flexinput">{input}</div>'
+        html += '<ul class="mt-2 ps-0">'
+
+        for item_value, item_label in items.items():
+            tmp_attributes = {
+                "class": "d-block",
+                "value": item_value,
+                "is-deleted": 0,
+                "data-itemvalue": item_attributes.get(item_value, ""),
+            }
+
+            html += f"<li {Flexihtml.inline_attributes(tmp_attributes)}>"
+            html += '<a href="javascript:void(0)"><i class="fa-solid fa-trash"></i></a> &ndash; '
+            html += f'<a href="javascript:void(0)">{item_label}</a>'
+            html += "</li>"
+
+        html += "</ul>"
+        html += "</div>"
+
+        return html
+
+    @staticmethod
+    def photobox(
+        name: str,
+        value: Union[int, float, str, list[str]] = [],
+        *,
+        attributes: dict[str, str] = {},
+    ) -> str:
+        return ""
+
+    @staticmethod
+    def button(
+        name: str,
+        type: str = "submit",
+        *,
+        label: str = "Submit",
+        attributes: dict[str, str] = {},
+    ) -> str:
+        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
+        attributes["name"] = name
+        attributes["type"] = type
+
+        if "class" not in attributes:
+            attributes["class"] = "btn btn-primary"
+
+        return f"<button {Flexihtml.inline_attributes(attributes)}>{label}</button>"
 
     class Tabs:
         def __init__(self):
@@ -503,87 +793,186 @@ class Flexihtml:
             self.__items.append((path, label))
 
     class Form:
-        def __init__(self, *, method: str = "get", action: str = "", **kwargs):
+        def __init__(
+            self,
+            *,
+            method: str = "get",
+            action: str = "",
+            attributes: dict[str, str] = {},
+        ):
             self.__items: dict[str, dict[str, Any]] = {}
-            self.__attributes: dict = kwargs
+            self.__attributes: dict[str, str] = attributes
             self.__attributes.update({"method": method, "action": action})
 
         def add(
             self,
-            column: sqlal.orm.attributes.InstrumentedAttribute,
+            column: InstrumentedAttribute,
             *,
             label: str,
-            value: Optional[Any] = None,
+            input_type: str = "TBD",
             help_text: str = "",
-            autocomplete: Optional["Flexihtml.Form.DependsOn"] = None,
-            selectbox_options: dict = {},
-            snippet: Optional[str] = None,
-            **attributes: dict,
+            value: Optional[Union[int, str, list]] = "",
+            options: dict[str, str] = {},
+            datalist: dict[str, str] = {},
+            items: dict[str, str] = {},
+            item_attributes: dict[str, str] = {},
+            attributes: dict[str, str] = {},
         ):
-            self.__items[column.name] = {
+            self.__items[column.key] = {
                 "column": column,
-                "value": value,
+                "input_type": input_type,
                 "label": label,
                 "help_text": help_text,
+                "value": value,
+                "options": options,
+                "datalist": datalist,
+                "items": items,
+                "item_attributes": item_attributes,
                 "attributes": attributes,
             }
 
-        def __call__(self):
-            def inline_attributes(attributes: dict[str, str]) -> str:
-                return ""
+        def add_text(
+            self,
+            column: InstrumentedAttribute,
+            *,
+            label: str,
+            help_text: str = "",
+            value: str = "",
+            datalist: dict[str, str] = {},
+            attributes: dict[str, str] = {},
+        ):
+            self.add(
+                column,
+                input_type="text",
+                label=label,
+                help_text=help_text,
+                value=value,
+                datalist=datalist,
+                attributes=attributes,
+            )
 
-            html = f"<form {inline_attributes(self.__attributes)}>"
+        def add_numeric(
+            self,
+            column: InstrumentedAttribute,
+            *,
+            label: str,
+            help_text: str = "",
+            value: Union[int, float] = 0,
+            attributes: dict[str, str] = {},
+        ):
+            self.add(
+                column,
+                input_type="numeric",
+                label=label,
+                help_text=help_text,
+                value=value,
+                attributes=attributes,
+            )
 
-            for name, item in self.__items.items():
+        def add_selectbox(
+            self,
+            column: InstrumentedAttribute,
+            *,
+            label: str,
+            help_text: str = "",
+            value: Union[int, float, str, list[str]] = [],
+            options: dict[str, str],
+            option_attributes: dict[str, str] = {},
+            attributes: dict[str, str] = {},
+        ):
+            self.add(
+                column,
+                input_type="selectbox",
+                label=label,
+                help_text=help_text,
+                value=value,
+                items=options,
+                item_attributes=option_attributes,
+                attributes=attributes,
+            )
+
+        def add_listbox(
+            self,
+            column: InstrumentedAttribute,
+            *,
+            label: str,
+            help_text: str = "",
+            items: dict[str, str] = {},
+            item_attributes: dict[str, str] = {},
+            attributes: dict[str, str] = {},
+        ):
+            self.add(
+                column,
+                input_type="listbox",
+                label=label,
+                help_text=help_text,
+                items=items,
+                item_attributes=item_attributes,
+                attributes=attributes,
+            )
+
+        def build(self, name: str) -> str:
+            html = ""
+
+            if item := self.__items.get(name):
+                column = item["column"]
+
                 html += f"""
                     <div class="form-group flexinputs flexinput-{name}">
-                        <label class="form-label">{item['label']}</label>
+                        <label class="form-label">{item["label"]}</label>
                 """
 
-                if Flexihtml.is_column_int(
-                    column := item["column"]
-                ) or Flexihtml.is_column_float(column):
-                    if column.foreign_keys:
-                        html += f"""
-                        <div class="input-group">
-                            <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" {inline_attributes(item['attributes'])} />
-                            <span class="input-group-text w-25">...</span>
-                        </div>
-                        """
-                    else:
-                        html += f"""
-                        <input type="numeric" name="{name}" class="form-control" value="{item['value'] or ''}" {inline_attributes(item['attributes'])} />
-                        """
-                elif Flexihtml.is_column_text(column):
-                    html += f'<textarea name="{name}" class="form-control" {inline_attributes(item['attributes'])}>{item['value'] or ''}</textarea>'
-                elif Flexihtml.is_column_bool(column) or Flexihtml.is_column_enum(
-                    column
-                ):
-                    if not isinstance(item["value"], list):
-                        item["value"] = list(item["value"])
-
-                    html += f'<select name="{name}" class="form-control" {inline_attributes(item['attributes'])}>'
-
-                    if not (options := item["selectbox_options"]):
-                        options = {0: "False", 1: "True"}
-
-                    for opt_value, opt_label in options.items():
-                        html += f'<option value="{opt_value}" {"selected" if opt_value in item["value"] else ""}>{opt_label}</option>'
-
-                    html += "</select>"
+                if isinstance(column.property, _RelationshipDeclared):
+                    html += "---"
+                elif item["input_type"] == "TBD":
+                    if Flexihtml.is_column_int(column) or Flexihtml.is_column_float(
+                        column
+                    ):
+                        html += Flexihtml.input_numeric(
+                            name, item["value"], attributes=item["attributes"]
+                        )
+                    elif Flexihtml.is_column_text(column):
+                        html += Flexihtml.textarea(
+                            name, item["value"], attributes=item["attributes"]
+                        )
+                    elif Flexihtml.is_column_bool(column):
+                        html += Flexihtml.selectbox(
+                            name,
+                            item["value"],
+                            items={0: "False", 1: "True"},
+                            attributes=item["attributes"],
+                        )
+                elif item["input_type"] == "text":
+                    html += Flexihtml.input_text(
+                        name, item["value"], attributes=item["attributes"]
+                    )
+                elif item["input_type"] == "numeric":
+                    html += Flexihtml.input_numeric(
+                        name, item["value"], attributes=item["attributes"]
+                    )
+                elif item["input_type"] == "selectbox":
+                    html += Flexihtml.selectbox(
+                        name,
+                        item["value"],
+                        items=item["items"],
+                        item_attributes=item["item_attributes"],
+                        attributes=item["attributes"],
+                    )
 
                 html += f"""
-                        <small class="form-text text-muted">{item['help_text'] or ''}</small>
+                        <small class="form-text text-muted">{item["help_text"] or ""}</small>
                     </div>
                 """
 
+            return html
+
+        def __call__(self):
+            html = f"<form {Flexihtml.inline_attributes(self.__attributes)}>"
+
+            for name, _ in self.__items.items():
+                html += self.build(name)
+
             return html + "</form>"
-
-        class Inline:
-            pass
-
-        class DependsOn:
-            pass
 
     class Table:
         MAX_ITEMS_PER_PAGE: int = 15
@@ -760,7 +1149,7 @@ class Flexihtml:
         def __init__(self):
             self.__items: dict[str, dict[str, Any]] = {}
 
-        def __call__(self, select: sqlal.Select, query_params: dict) -> sqlal.Select:
+        def __call__(self, select: Select, query_params: dict) -> Select:
             for column_name, searchbox in self.items():
                 sa_column = False
                 sb_name = f"{column_name}_sb0"
@@ -812,9 +1201,9 @@ class Flexihtml:
                                 sa_column.not_ilike(f"%{search_value_1}%")
                             )
                         elif exp == "is_null":
-                            select = select.where(sa_column == sqlal.null())
+                            select = select.where(sa_column == null())
                         elif exp == "is_not_null":
-                            select = select.where(sa_column != sqlal.null())
+                            select = select.where(sa_column != null())
                         elif exp in ["is_between", "is_not_between"] and search_value_2:
                             if exp == "is_between":
                                 select = select.where(
@@ -822,7 +1211,7 @@ class Flexihtml:
                                 )
                             else:
                                 select = select.where(
-                                    sqlal.not_(
+                                    not_(
                                         sa_column.between(
                                             search_value_1, search_value_2
                                         )
@@ -850,7 +1239,7 @@ class Flexihtml:
 
         def add(
             self,
-            column: sqlal.Column,
+            column: Column,
             label: str,
             help_text: str = "",
             input_value_1: Union[int, str] = "",
@@ -958,12 +1347,12 @@ class Flexihtml:
 
         def reset_column(
             self,
-            column: sqlal.Column,
+            column: Column,
             exp_options: dict[str, str] = {},
             value_type: str = "",
             value_options: dict[str, str] = {},
             callback: Callable[
-                [sqlal.Select, sqlal.Column, str, str, Optional[str]], sqlal.Select
+                [Select, Column, str, str, Optional[str]], Select
             ] = None,
         ):
             pass
