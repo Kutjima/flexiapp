@@ -5,7 +5,7 @@ import hashlib
 import pathlib
 
 from typing import Any, Callable, Optional, Union
-from sqlalchemy import Engine, Column, Integer, Select, Table, inspect, text, func
+from sqlalchemy import Engine, Column, Integer, Select, Table, inspect, not_, null, text, func
 from sqlalchemy.orm import (
     Session,
     DeclarativeBase,
@@ -21,6 +21,131 @@ FLEXIAPP_PATH = pathlib.Path(__file__).resolve().parent
 
 def uuid_text(text: str) -> str:
     return str(uuid.UUID(hex=hashlib.md5(text.encode("UTF-8")).hexdigest()))
+
+
+def is_column_bool(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in [
+        "bool",
+        "boolean",
+        "matchtype",
+    ]
+
+
+def is_column_uuid(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["uuid"]
+
+
+def is_column_text(column: InstrumentedAttribute) -> bool:
+    return is_column_uuid(column) or column.type.__class__.__name__.lower() in [
+        "text",
+        "str",
+        "string",
+        "autostring",
+        "char",
+        "nchar",
+        "varchar",
+        "nvarchar",
+        "blob",
+        "clob",
+        "unicode",
+        "unicodetext",
+    ]
+
+
+def is_column_int(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in [
+        "int",
+        "integer",
+        "numeric",
+        "smallint",
+        "smallinteger",
+        "bigint",
+        "biginteger",
+    ]
+
+
+def is_column_float(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in [
+        "real",
+        "float",
+        "decimal",
+        "double",
+        "double_precision",
+    ]
+
+
+def is_column_numeric(column: InstrumentedAttribute) -> bool:
+    return is_column_int(column) or is_column_float(column)
+
+
+def is_column_binary(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in [
+        "binary",
+        "varbinary",
+        "largebinary",
+    ]
+
+
+def is_column_datetime(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["datetime", "date", "time"]
+
+
+def is_column_enum(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["enum"]
+
+
+def is_column_json(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["json"]
+
+
+def is_column_list(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["list", "array"]
+
+
+def is_column_interval(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["interval"]
+
+
+def is_column_timestamp(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["timestamp"]
+
+
+def is_column_geometry(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["geometry"]
+
+
+def is_column_nullable(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["nulltype"]
+
+
+def is_column_schema(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["schematype"]
+
+
+def is_column_pickle(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["pickletype"]
+
+
+def is_column_expression_lookup(column: InstrumentedAttribute) -> bool:
+    return column.type.__class__.__name__.lower() in ["hasexpressionlookup"]
+
+
+def flatten_attributes(attributes: dict) -> str:
+    html = ""
+
+    for name, value in attributes.items():
+        if isinstance(value, (list, tuple, dict)):
+            value = (
+                json.dumps(value).replace('"', "&quot;")
+                # .replace("&", "&amp;")
+                # .replace("'", "&#039;")
+                # .replace("<", "&lt;")
+                # .replace(">", "&gt;")
+            )
+
+        html += f'{name}="{value}" '
+
+    return html.strip()
 
 
 def deep_access(
@@ -44,7 +169,7 @@ def deep_access(
     return value
 
 
-class _Flexinput:
+class FormElement:
     @property
     def id(self) -> str:
         return self._id
@@ -58,74 +183,459 @@ class _Flexinput:
         name: str,
         value: Union[int, float, str] = "",
         *,
-        datalist: dict[str, str] = {},
         attributes: dict[str, str] = {},
     ):
-        self._name: str = name
-        self.value: Union[int, float, str] = value
-        self.datalist: dict[str, str] = datalist
-        self.attributes: dict[str, str] = attributes
+        self.value = value
+        self.attributes = attributes
         self.attributes["id"] = self._id = f"flexinput-{uuid_text(self._name)[0:8]}"
+        self.attributes["name"] = self._name = name
+
+        if "class" not in self.attributes:
+            self.attributes["class"] = "form-control"
 
     def set_value(self, value: Union[int, float, str]):
         self.value = value
 
-    def set_attributes(self, attributes: dict[str, str]):
-        self.attributes = attributes
-        self.attributes["id"] = self._id
-        self.attributes["name"] = self._name
-
     def __call__(self) -> str:
         return self.build()
-    
+
     def build(self) -> str:
         raise NotImplementedError()
 
-    @staticmethod
-    def inline_attributes(attributes: dict) -> str:
-        html = ""
 
-        for name, value in attributes.items():
-            if isinstance(value, (list, tuple, dict)):
-                value = (
-                    json.dumps(value).replace('"', "&quot;")
-                    # .replace("&", "&amp;")
-                    # .replace("'", "&#039;")
-                    # .replace("<", "&lt;")
-                    # .replace(">", "&gt;")
-                )
-
-            html += f'{name}="{value}" '
-
-        return html.strip()
-
-
-class Input(_Flexinput):
-    pass
-
-
-class Textarea(_Flexinput):
-    pass
-
-
-class Selectbox(_Flexinput):
+class _Input(FormElement):
     def __init__(
         self,
         name: str,
-        value: int | float | str = "",
+        value: Union[int, float, str] = "",
         *,
-        datalist: dict[str, str] = {},
+        type: str = "text",
         attributes: dict[str, str] = {},
-        options: dict[str, str] = {},
-        option_values: dict[str, str] = {},
     ):
-        super().__init__(name, value, datalist=datalist, attributes=attributes)
+        attributes["type"] = type
+        attributes["value"] = value
+        super().__init__(name, value, attributes=attributes)
+
+    def build(self) -> str:
+        return f"""
+            <input {flatten_attributes(self.attributes)} />
+        """
+
+
+class _InputCheck(_Input):
+    def __init__(
+        self,
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        label: str,
+        type: str = "checkbox",
+        is_switch: bool = False,
+        checked: bool = False,
+        attributes: dict[str, str] = {},
+    ):
+        self.label = label
+        self.is_switch = is_switch
+        self.attributes["checked"] = checked
+
+        if "class" not in attributes:
+            attributes["class"] = "form-check-input"
+
+        super().__init__(name, value, type=type, attributes=attributes)
+
+    def build(self) -> str:
+        return f'''
+            <div class="{"form-check form-switch" if self.is_switch else "form-check"}">
+                <input {flatten_attributes(self.attributes)} />
+                <label class="form-check-label" for="{self.attributes["id"]}">
+                    {self.label}
+                </label>
+            </div>
+        '''
+
+
+class Input(_Input):
+    class Date(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="date", attributes=attributes)
+
+    class Datetime(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="datetime", attributes=attributes)
+
+    class Time(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="time", attributes=attributes)
+
+    class Hidden(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="hidden", attributes=attributes)
+
+    class Password(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="password", attributes=attributes)
+
+    class Numeric(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="number", attributes=attributes)
+
+    class Text(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            datalist: dict[str, str] = {},
+            attributes: dict[str, str] = {},
+        ):
+            self.datalist = datalist
+            super().__init__(name, value, type="number", attributes=attributes)
+
+    class File(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="file", attributes=attributes)
+
+    class Range(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            if "class" not in attributes:
+                attributes["class"] = "form-range"
+
+            super().__init__(name, value, type="range", attributes=attributes)
+
+    class Radio(_InputCheck):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            label: str,
+            checked: bool = False,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(
+                name,
+                value,
+                label=label,
+                type="radio",
+                is_switch=False,
+                checked=checked,
+                attributes=attributes,
+            )
+
+    class SwitchRadio(_InputCheck):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            label: str,
+            checked: bool = False,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(
+                name,
+                value,
+                label=label,
+                type="radio",
+                is_switch=True,
+                checked=checked,
+                attributes=attributes,
+            )
+
+    class Checkbox(_InputCheck):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            label: str,
+            checked: bool = False,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(
+                name,
+                value,
+                label=label,
+                type="checkbox",
+                is_switch=False,
+                checked=checked,
+                attributes=attributes,
+            )
+
+    class SwitchCheckbox(_InputCheck):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int, float, str] = "",
+            *,
+            label: str,
+            checked: bool = False,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(
+                name,
+                value,
+                label=label,
+                type="checkbox",
+                is_switch=True,
+                checked=checked,
+                attributes=attributes,
+            )
+
+
+class Textarea(FormElement):
+    def __init__(
+        self,
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        attributes: dict[str, str] = {},
+    ):
+        super().__init__(name, value, attributes=attributes)
+
+    def build(self) -> str:
+        return f"""
+            <textarea {flatten_attributes(self.attributes)}>{self.value}</textarea>
+        """
+
+
+class Selectbox(FormElement):
+    def __init__(
+        self,
+        name: str,
+        value: Union[int, float, str] = "",
+        *,
+        options: dict[str, str] = {},
+        mapped_options: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+    ):
         self.options = options
-        self.option_values = option_values
+        self.mapped_options = mapped_options
+
+        if "class" not in attributes:
+            attributes["class"] = "form-select"
+
+        super().__init__(name, value, attributes=attributes)
+
+    def build(self) -> str:
+        if not isinstance(self.value, list):
+            self.value = list(self.value or "")
+
+        html = f"""
+            <select {flatten_attributes(self.attributes)}>
+        """
+
+        for item_value, item_label in self.options.items():
+            tmp_attributes = {
+                "value": item_value,
+                "data-optionvalue": self.mapped_options.get(item_value, ""),
+            }
+
+            if item_value in self.value:
+                tmp_attributes["selected"] = 1
+
+            html += f"""
+                <option {flatten_attributes(tmp_attributes)}>{item_label}</option>
+            """
+
+        html += """
+            </select>
+        """
+
+        return html
 
 
-class Listbox(_Flexinput):
+class Listbox(FormElement):
+    def __init__(
+        self,
+        name: str,
+        *,
+        value: Union[int, float, str] = "",
+        text_input: FormElement = Input.Text("xxxxx"),
+        list_items: dict[str, str] = {},
+        mapped_list_items: dict[str, str] = {},
+        attributes: dict[str, str] = {},
+    ):
+        self._id = uuid_text(self._name)[0:8]
+        self._name = name
+        self.value = value
+        self.text_input = text_input
+        self.list_items = list_items
+        self.mapped_list_items = mapped_list_items
+        self.attributes = attributes
+
+    def build(self) -> str:
+        html = f"""
+            <div id="flexilist-{self._id}" class="flexinputs flexlist">
+                <div id="flexilist-input-{self._id}">{self.text_input()}</div>
+                <ul id="flexilist-ul-{self._id}" class="mt-2 ps-0">
+        """
+
+        for item_value, item_label in self.list_items.items():
+            tmp_attributes = {
+                "class": "d-block",
+                "value": item_value,
+                "is-deleted": 0,
+                "data-itemvalue": self.mapped_list_items.get(item_value, ""),
+            }
+
+            html += f"""
+                <li {flatten_attributes(tmp_attributes)}>
+                    <a href="javascript:void(0)">
+                        <i class="fa-solid fa-trash"></i>
+                    </a> &ndash;
+                    <a href="javascript:void(0)">{item_label}</a>
+                </li>
+            """
+
+        html += """
+                </ul>
+            <div>
+        """
+
+        return html
+
+
+class Button(FormElement):
+    def __init__(
+        self,
+        name: str,
+        label: str = "Submit",
+        *,
+        type: str = "submit",
+        value: Union[int, float, str] = "",
+        attributes: dict[str, str] = {},
+    ):
+        self.label = label
+        attributes["type"] = type
+        attributes["value"] = value
+
+        if "class" not in attributes:
+            attributes["class"] = "btn btn-primary"
+
+        super().__init__(name, value, attributes=attributes)
+
+    def build(self) -> str:
+        return f"""
+            <button {flatten_attributes(self.attributes)}>{self.label}</button>
+        """
+
+
+class InputGroup(FormElement):
     pass
+
+
+class FormGroup:
+    @property
+    def id(self) -> str:
+        return self._id
+
+    def __init__(
+        self,
+        input: FormElement,
+        *,
+        label: str,
+        inline: bool = False,
+        colsize: int = 12,
+        help_text: str = "",
+        attributes: dict[str, str] = {},
+    ):
+        self.input = input
+        self.label = label
+        self.inline = inline
+        self.colsize = colsize
+        self.help_text = help_text
+
+        if "class" not in attributes:
+            attributes["class"] = "form-group flexinput-group"
+
+        attributes["id"] = self._id = f"flexinput-group-{uuid_text(label)[0:8]}"
+        self.attributes = attributes
+
+    def build(self) -> str:
+        if self.inline:
+            return f"""
+                <div class="row">
+                    <label class="form-label col-{12 - self.colsize}">{self.label}</label>
+                    <div class="col-{self.colsize}">
+                        <div {flatten_attributes(self.attributes)}>
+                            {self.input()}
+                            <small class="form-text text-muted">{self.help_text}</small>
+                        </div>
+                    </div>
+                </div>
+            """
+        else:
+            return f"""
+                <div class="col-{self.colsize}">
+                    <div {flatten_attributes(self.attributes)}>
+                        <label class="form-label">{self.label}</label>
+                        {self.input()}
+                        <small class="form-text text-muted">{self.help_text}</small>
+                    </div>
+                </div>
+            """
+
+
+class FloatingLabel(FormGroup):
+    def build(self) -> str:
+        return f"""
+            <div {flatten_attributes(self.attributes)}>
+                <div class="form-floating">
+                    {self.input()}
+                    <label class="form-label" for="{self.input.id}">{self.label}</label>
+                </div>
+                <small class="form-text text-muted">{self.help_text}</small>
+            </div>
+        """
 
 
 class Fleximodel(DeclarativeBase):
@@ -463,310 +973,6 @@ class Flexihtml:
     def set_description(self, description: str):
         self.__description = description
 
-    @staticmethod
-    def is_column_bool(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in [
-            "bool",
-            "boolean",
-            "matchtype",
-        ]
-
-    @staticmethod
-    def is_column_uuid(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["uuid"]
-
-    @staticmethod
-    def is_column_text(column: InstrumentedAttribute) -> bool:
-        return Flexihtml.is_column_uuid(
-            column
-        ) or column.type.__class__.__name__.lower() in [
-            "text",
-            "str",
-            "string",
-            "autostring",
-            "char",
-            "nchar",
-            "varchar",
-            "nvarchar",
-            "blob",
-            "clob",
-            "unicode",
-            "unicodetext",
-        ]
-
-    @staticmethod
-    def is_column_int(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in [
-            "int",
-            "integer",
-            "numeric",
-            "smallint",
-            "smallinteger",
-            "bigint",
-            "biginteger",
-        ]
-
-    @staticmethod
-    def is_column_float(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in [
-            "real",
-            "float",
-            "decimal",
-            "double",
-            "double_precision",
-        ]
-
-    @staticmethod
-    def is_column_numeric(column: InstrumentedAttribute) -> bool:
-        return Flexihtml.is_column_int(column) or Flexihtml.is_column_float(column)
-
-    @staticmethod
-    def is_column_binary(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in [
-            "binary",
-            "varbinary",
-            "largebinary",
-        ]
-
-    @staticmethod
-    def is_column_datetime(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["datetime", "date", "time"]
-
-    @staticmethod
-    def is_column_enum(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["enum"]
-
-    @staticmethod
-    def is_column_json(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["json"]
-
-    @staticmethod
-    def is_column_list(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["list", "array"]
-
-    @staticmethod
-    def is_column_interval(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["interval"]
-
-    @staticmethod
-    def is_column_timestamp(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["timestamp"]
-
-    @staticmethod
-    def is_column_geometry(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["geometry"]
-
-    @staticmethod
-    def is_column_nullable(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["nulltype"]
-
-    @staticmethod
-    def is_column_schema(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["schematype"]
-
-    @staticmethod
-    def is_column_pickle(column: InstrumentedAttribute) -> bool:
-        return column.type.__class__.__name__.lower() in ["pickletype"]
-
-    @staticmethod
-    def is_column_expression_lookup(
-        column: InstrumentedAttribute,
-    ) -> bool:
-        return column.type.__class__.__name__.lower() in ["hasexpressionlookup"]
-
-    @staticmethod
-    def input(
-        name: str,
-        type: str = "text",
-        value: Union[int, float, str] = "",
-        *,
-        datalist: dict[str, str] = {},
-        attributes: dict[str, str] = {},
-    ) -> str:
-        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
-        attributes["name"] = name
-        attributes["type"] = type
-        attributes["value"] = value
-
-        if "class" not in attributes:
-            attributes["class"] = "form-control"
-
-        return f"<input {Flexihtml.inline_attributes(attributes)} />"
-
-    @staticmethod
-    def input_hidden(
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        attributes: dict[str, str] = {},
-    ) -> str:
-        return Flexihtml.input(name, "hidden", value, attributes=attributes)
-
-    @staticmethod
-    def input_numeric(
-        name: str, value: Union[int, float] = 0, *, attributes: dict[str, str] = {}
-    ) -> str:
-        return Flexihtml.input(name, "number", value, attributes=attributes)
-
-    @staticmethod
-    def input_text(
-        name: str,
-        value: str = "",
-        *,
-        datalist: dict[str, str] = {},
-        attributes: dict[str, str] = {},
-    ) -> str:
-        return Flexihtml.input(
-            name, "text", value, datalist=datalist, attributes=attributes
-        )
-
-    @staticmethod
-    def input_range(
-        name: str, value: Union[int, float] = 0, *, attributes: dict[str, str] = {}
-    ) -> str:
-        if "class" not in attributes:
-            attributes["class"] = "form-range"
-
-        return Flexihtml.input(name, "range", value, attributes=attributes)
-
-    @staticmethod
-    def input_checkbox(
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        label: str,
-        to_switch: bool = False,
-        attributes: dict[str, str] = {},
-    ) -> str:
-        if "class" not in attributes:
-            attributes["class"] = "form-check-input"
-
-        html = f'<div class="form-check{" form-switch" if to_switch else ""}">'
-        html += Flexihtml.input(name, "checkbox", value, attributes=attributes)
-        html += (
-            f'<label class="form-check-label" for="{attributes["id"]}">{label}</label>'
-        )
-        html += "</div>"
-
-        return html
-
-    @staticmethod
-    def input_switch(
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        label: str,
-        attributes: dict[str, str] = {},
-    ) -> str:
-        return Flexihtml.input_checkbox(
-            name, value, label=label, to_switch=True, attributes=attributes
-        )
-
-    @staticmethod
-    def textarea(name: str, value: str = "", *, attributes: dict[str, str] = {}) -> str:
-        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
-        attributes["name"] = name
-
-        if "class" not in attributes:
-            attributes["class"] = "form-control"
-
-        return f"<textarea {Flexihtml.inline_attributes(attributes)}>{value}</textarea>"
-
-    @staticmethod
-    def selectbox(
-        name: str,
-        value: Union[int, float, str, list[str]] = [],
-        *,
-        items: dict[str, str],
-        attributes: dict[str, str] = {},
-        item_attributes: dict[str, str] = {},
-    ) -> str:
-        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
-        attributes["name"] = name
-
-        if "class" not in attributes:
-            attributes["class"] = "form-select"
-
-        if not isinstance(value, list):
-            value = list(value or "")
-
-        html = f"<select {Flexihtml.inline_attributes(attributes)}>"
-
-        for item_value, item_label in items.items():
-            tmp_attributes = {
-                "value": item_value,
-                "data-optionvalue": item_attributes.get(item_value, ""),
-            }
-
-            if item_value in value:
-                tmp_attributes["selected"] = 1
-
-            html += f"<option {Flexihtml.inline_attributes(tmp_attributes)}>{item_label}</option>"
-
-        html += "</select>"
-
-        return html
-
-    @staticmethod
-    def listbox(
-        name: str,
-        input: str = "",
-        *,
-        items: dict[str, str],
-        attributes: dict[str, str] = {},
-        item_attributes: dict[str, str] = {},
-    ) -> str:
-        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
-        attributes["list-name"] = name
-
-        html = f"<div {Flexihtml.inline_attributes(attributes)}>"
-        html += f'<div class="flexinput">{input}</div>'
-        html += '<ul class="mt-2 ps-0">'
-
-        for item_value, item_label in items.items():
-            tmp_attributes = {
-                "class": "d-block",
-                "value": item_value,
-                "is-deleted": 0,
-                "data-itemvalue": item_attributes.get(item_value, ""),
-            }
-
-            html += f"<li {Flexihtml.inline_attributes(tmp_attributes)}>"
-            html += '<a href="javascript:void(0)"><i class="fa-solid fa-trash"></i></a> &ndash; '
-            html += f'<a href="javascript:void(0)">{item_label}</a>'
-            html += "</li>"
-
-        html += "</ul>"
-        html += "</div>"
-
-        return html
-
-    @staticmethod
-    def photobox(
-        name: str,
-        value: Union[int, float, str, list[str]] = [],
-        *,
-        attributes: dict[str, str] = {},
-    ) -> str:
-        return ""
-
-    @staticmethod
-    def button(
-        name: str,
-        type: str = "submit",
-        *,
-        label: str = "Submit",
-        attributes: dict[str, str] = {},
-    ) -> str:
-        attributes["id"] = f"flexinput-{uuid_text(name)[0:8]}"
-        attributes["name"] = name
-        attributes["type"] = type
-
-        if "class" not in attributes:
-            attributes["class"] = "btn btn-primary"
-
-        return f"<button {Flexihtml.inline_attributes(attributes)}>{label}</button>"
-
     class Tabs:
         def __init__(self):
             self.__items: list[tuple[str, str]] = []
@@ -804,170 +1010,16 @@ class Flexihtml:
             self.__attributes: dict[str, str] = attributes
             self.__attributes.update({"method": method, "action": action})
 
-        def add(
-            self,
-            column: InstrumentedAttribute,
-            *,
-            label: str,
-            input_type: str = "TBD",
-            help_text: str = "",
-            value: Optional[Union[int, str, list]] = "",
-            options: dict[str, str] = {},
-            datalist: dict[str, str] = {},
-            items: dict[str, str] = {},
-            item_attributes: dict[str, str] = {},
-            attributes: dict[str, str] = {},
-        ):
-            self.__items[column.key] = {
-                "column": column,
-                "input_type": input_type,
-                "label": label,
-                "help_text": help_text,
-                "value": value,
-                "options": options,
-                "datalist": datalist,
-                "items": items,
-                "item_attributes": item_attributes,
-                "attributes": attributes,
-            }
-
-        def add_text(
-            self,
-            column: InstrumentedAttribute,
-            *,
-            label: str,
-            help_text: str = "",
-            value: str = "",
-            datalist: dict[str, str] = {},
-            attributes: dict[str, str] = {},
-        ):
-            self.add(
-                column,
-                input_type="text",
-                label=label,
-                help_text=help_text,
-                value=value,
-                datalist=datalist,
-                attributes=attributes,
-            )
-
-        def add_numeric(
-            self,
-            column: InstrumentedAttribute,
-            *,
-            label: str,
-            help_text: str = "",
-            value: Union[int, float] = 0,
-            attributes: dict[str, str] = {},
-        ):
-            self.add(
-                column,
-                input_type="numeric",
-                label=label,
-                help_text=help_text,
-                value=value,
-                attributes=attributes,
-            )
-
-        def add_selectbox(
-            self,
-            column: InstrumentedAttribute,
-            *,
-            label: str,
-            help_text: str = "",
-            value: Union[int, float, str, list[str]] = [],
-            options: dict[str, str],
-            option_attributes: dict[str, str] = {},
-            attributes: dict[str, str] = {},
-        ):
-            self.add(
-                column,
-                input_type="selectbox",
-                label=label,
-                help_text=help_text,
-                value=value,
-                items=options,
-                item_attributes=option_attributes,
-                attributes=attributes,
-            )
-
-        def add_listbox(
-            self,
-            column: InstrumentedAttribute,
-            *,
-            label: str,
-            help_text: str = "",
-            items: dict[str, str] = {},
-            item_attributes: dict[str, str] = {},
-            attributes: dict[str, str] = {},
-        ):
-            self.add(
-                column,
-                input_type="listbox",
-                label=label,
-                help_text=help_text,
-                items=items,
-                item_attributes=item_attributes,
-                attributes=attributes,
-            )
+        def add(self, column: InstrumentedAttribute):
+            self.__items[column.key] = {"column": column}
 
         def build(self, name: str) -> str:
-            html = ""
-
-            if item := self.__items.get(name):
-                column = item["column"]
-
-                html += f"""
-                    <div class="form-group flexinputs flexinput-{name}">
-                        <label class="form-label">{item["label"]}</label>
-                """
-
-                if isinstance(column.property, _RelationshipDeclared):
-                    html += "---"
-                elif item["input_type"] == "TBD":
-                    if Flexihtml.is_column_int(column) or Flexihtml.is_column_float(
-                        column
-                    ):
-                        html += Flexihtml.input_numeric(
-                            name, item["value"], attributes=item["attributes"]
-                        )
-                    elif Flexihtml.is_column_text(column):
-                        html += Flexihtml.textarea(
-                            name, item["value"], attributes=item["attributes"]
-                        )
-                    elif Flexihtml.is_column_bool(column):
-                        html += Flexihtml.selectbox(
-                            name,
-                            item["value"],
-                            items={0: "False", 1: "True"},
-                            attributes=item["attributes"],
-                        )
-                elif item["input_type"] == "text":
-                    html += Flexihtml.input_text(
-                        name, item["value"], attributes=item["attributes"]
-                    )
-                elif item["input_type"] == "numeric":
-                    html += Flexihtml.input_numeric(
-                        name, item["value"], attributes=item["attributes"]
-                    )
-                elif item["input_type"] == "selectbox":
-                    html += Flexihtml.selectbox(
-                        name,
-                        item["value"],
-                        items=item["items"],
-                        item_attributes=item["item_attributes"],
-                        attributes=item["attributes"],
-                    )
-
-                html += f"""
-                        <small class="form-text text-muted">{item["help_text"] or ""}</small>
-                    </div>
-                """
-
-            return html
+            # if isinstance(column.property, _RelationshipDeclared):
+            #     html += "---"
+            pass
 
         def __call__(self):
-            html = f"<form {Flexihtml.inline_attributes(self.__attributes)}>"
+            html = f"<form {flatten_attributes(self.__attributes)}>"
 
             for name, _ in self.__items.items():
                 html += self.build(name)
