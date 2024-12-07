@@ -148,10 +148,41 @@ main.columns section.aside:nth-child(2) {
     margin-bottom: 25px;
 }
 
-.form-group .form-label,
-.form-group .col-form-label {
+.form-label,
+.col-form-label {
     font-size: 17px;
     font-weight: bold;
+}
+
+.flexilist-ul li.flexilist-ul-item {
+    display: block;
+}
+
+.flexilist-ul li a.flexilist-ul-item-edit {
+    text-decoration: none;
+}
+
+.flexilist-ul li a.flexilist-ul-item-edit.is-connected {
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.flexilist-ul li a.flexilist-ul-item-edit.is-deleted {
+    text-decoration: line-through;
+}
+
+.flexilist-ul li.flexilist-ul-item:hover a.flexilist-ul-item-edit {
+    text-decoration: underline;
+}
+
+.flexilist-ul li a.flexilist-ul-item-action {
+    opacity: 0;
+    font-size: 80%;
+    text-decoration: none;
+}
+
+.flexilist-ul li.flexilist-ul-item:hover a.flexilist-ul-item-action {
+    opacity: 1;
 }
 
 table th {
