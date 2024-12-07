@@ -5,7 +5,17 @@ import hashlib
 import pathlib
 
 from typing import Any, Callable, Optional, Union
-from sqlalchemy import Engine, Column, Integer, Select, Table, inspect, not_, null, text, func
+from sqlalchemy import (
+    Engine,
+    Column,
+    Integer,
+    Select,
+    inspect,
+    not_,
+    null,
+    text,
+    func,
+)
 from sqlalchemy.orm import (
     Session,
     DeclarativeBase,
@@ -19,8 +29,12 @@ from sqlalchemy.orm.relationships import _RelationshipDeclared
 FLEXIAPP_PATH = pathlib.Path(__file__).resolve().parent
 
 
-def uuid_text(text: str) -> str:
-    return str(uuid.UUID(hex=hashlib.md5(text.encode("UTF-8")).hexdigest()))
+def uuid_text(to_encode: str) -> str:
+    return str(uuid.UUID(hex=hashlib.md5(str(to_encode).encode("UTF-8")).hexdigest()))
+
+
+def short_uuid_text(to_encode: str) -> str:
+    return uuid_text(to_encode)[0:8]
 
 
 def is_column_bool(column: InstrumentedAttribute) -> bool:
@@ -178,28 +192,41 @@ class FormElement:
     def name(self) -> str:
         return self._name
 
+    @property
+    def to_string(self) -> str:
+        return str(self)
+
     def __init__(
         self,
         name: str,
-        value: Union[int, float, str] = "",
         *,
         attributes: dict[str, str] = {},
     ):
-        self.value = value
-        self.attributes = attributes
-        self.attributes["id"] = self._id = f"flexinput-{uuid_text(self._name)[0:8]}"
+        self.attributes = {}
+        self.additionals: list[FormElement] = []
+        self.attributes.update(attributes)
         self.attributes["name"] = self._name = name
+        self.attributes["id"] = self._id = f"flexinput-{short_uuid_text(self._name)}"
 
         if "class" not in self.attributes:
             self.attributes["class"] = "form-control"
 
-    def set_value(self, value: Union[int, float, str]):
-        self.value = value
+    def __str__(self) -> str:
+        html = ""
 
-    def __call__(self) -> str:
-        return self.build()
+        for additional in self.additionals:
+            html += additional._build()
 
-    def build(self) -> str:
+        return html + self._build()
+
+    def __add__(self, this: "FormElement"):
+        if isinstance(this, FormElement):
+            this.additionals.extend(self.additionals)
+            this.additionals.append(self)
+
+        return this
+
+    def _build(self) -> str:
         raise NotImplementedError()
 
 
@@ -212,46 +239,17 @@ class _Input(FormElement):
         type: str = "text",
         attributes: dict[str, str] = {},
     ):
-        attributes["type"] = type
-        attributes["value"] = value
-        super().__init__(name, value, attributes=attributes)
+        super().__init__(name, attributes=attributes)
+        self.attributes["type"] = type
+        self.attributes["value"] = value
 
-    def build(self) -> str:
+    def set_value(self, value: Union[int, float, str]):
+        self.attributes["value"] = value
+
+    def _build(self) -> str:
         return f"""
             <input {flatten_attributes(self.attributes)} />
         """
-
-
-class _InputCheck(_Input):
-    def __init__(
-        self,
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        label: str,
-        type: str = "checkbox",
-        is_switch: bool = False,
-        checked: bool = False,
-        attributes: dict[str, str] = {},
-    ):
-        self.label = label
-        self.is_switch = is_switch
-        self.attributes["checked"] = checked
-
-        if "class" not in attributes:
-            attributes["class"] = "form-check-input"
-
-        super().__init__(name, value, type=type, attributes=attributes)
-
-    def build(self) -> str:
-        return f'''
-            <div class="{"form-check form-switch" if self.is_switch else "form-check"}">
-                <input {flatten_attributes(self.attributes)} />
-                <label class="form-check-label" for="{self.attributes["id"]}">
-                    {self.label}
-                </label>
-            </div>
-        '''
 
 
 class Input(_Input):
@@ -315,17 +313,59 @@ class Input(_Input):
         ):
             super().__init__(name, value, type="number", attributes=attributes)
 
+    class Int(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[int] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="number", attributes=attributes)
+
+    class Float(_Input):
+        def __init__(
+            self,
+            name: str,
+            value: Union[float] = "",
+            *,
+            attributes: dict[str, str] = {},
+        ):
+            super().__init__(name, value, type="number", attributes=attributes)
+
     class Text(_Input):
+        @property
+        def datalist_id(self) -> str:
+            return self._datalist_id
+
         def __init__(
             self,
             name: str,
             value: Union[int, float, str] = "",
             *,
-            datalist: dict[str, str] = {},
+            datalist: Union[list[str], dict[str, str]] = [],
             attributes: dict[str, str] = {},
         ):
-            self.datalist = datalist
-            super().__init__(name, value, type="number", attributes=attributes)
+            super().__init__(name, value, type="text", attributes=attributes)
+            self.attributes["list"] = self._datalist_id = f"datalist-{self.attributes['id']}"
+            self._datalist = datalist
+
+        def _build(self) -> str:
+            html_datalist = f'<datalist id="{self._datalist_id}">'
+
+            if isinstance(self._datalist, dict):
+                for value, label in self._datalist.items():
+                    html_datalist += f"<option {flatten_attributes({'value': value})}>{label} ({value})</option>"
+            elif isinstance(self._datalist, list):
+                for value in self._datalist:
+                    html_datalist += f"<option {flatten_attributes({'value': value})} />"
+
+            html_datalist += "</datalist>"
+
+            return f"""
+                {html_datalist}
+                <input {flatten_attributes(self.attributes)} />
+            """
 
     class File(_Input):
         def __init__(
@@ -345,12 +385,10 @@ class Input(_Input):
             *,
             attributes: dict[str, str] = {},
         ):
-            if "class" not in attributes:
-                attributes["class"] = "form-range"
-
             super().__init__(name, value, type="range", attributes=attributes)
+            self.attributes["class"] = "form-range"
 
-    class Radio(_InputCheck):
+    class Radio(_Input):
         def __init__(
             self,
             name: str,
@@ -360,17 +398,25 @@ class Input(_Input):
             checked: bool = False,
             attributes: dict[str, str] = {},
         ):
-            super().__init__(
-                name,
-                value,
-                label=label,
-                type="radio",
-                is_switch=False,
-                checked=checked,
-                attributes=attributes,
-            )
+            super().__init__(name, value, type="radio", attributes=attributes)
+            self.attributes["id"] = f"{self.attributes['id']}-{short_uuid_text(value)}"
+            self.attributes["class"] = "form-check-input"
+            self.label = label
 
-    class SwitchRadio(_InputCheck):
+            if checked:
+                self.attributes["checked"] = 1
+
+        def _build(self) -> str:
+            return f'''
+                <div class="form-check">
+                    <input {flatten_attributes(self.attributes)} />
+                    <label class="form-check-label" for="{self.attributes["id"]}">
+                        {self.label}
+                    </label>
+                </div>
+            '''
+
+    class SwitchRadio(_Input):
         def __init__(
             self,
             name: str,
@@ -380,17 +426,25 @@ class Input(_Input):
             checked: bool = False,
             attributes: dict[str, str] = {},
         ):
-            super().__init__(
-                name,
-                value,
-                label=label,
-                type="radio",
-                is_switch=True,
-                checked=checked,
-                attributes=attributes,
-            )
+            super().__init__(name, value, type="radio", attributes=attributes)
+            self.attributes["id"] = f"{self.attributes['id']}-{short_uuid_text(value)}"
+            self.attributes["class"] = "form-check-input"
+            self.label = label
 
-    class Checkbox(_InputCheck):
+            if checked:
+                self.attributes["checked"] = 1
+
+        def _build(self) -> str:
+            return f'''
+                <div class="form-check form-switch">
+                    <input {flatten_attributes(self.attributes)} />
+                    <label class="form-check-label" for="{self.attributes["id"]}">
+                        {self.label}
+                    </label>
+                </div>
+            '''
+
+    class Checkbox(_Input):
         def __init__(
             self,
             name: str,
@@ -400,17 +454,24 @@ class Input(_Input):
             checked: bool = False,
             attributes: dict[str, str] = {},
         ):
-            super().__init__(
-                name,
-                value,
-                label=label,
-                type="checkbox",
-                is_switch=False,
-                checked=checked,
-                attributes=attributes,
-            )
+            super().__init__(name, value, type="checkbox", attributes=attributes)
+            self.attributes["class"] = "form-check-input"
+            self.label = label
 
-    class SwitchCheckbox(_InputCheck):
+            if checked:
+                self.attributes["checked"] = 1
+
+        def _build(self) -> str:
+            return f'''
+                <div class="form-check">
+                    <input {flatten_attributes(self.attributes)} />
+                    <label class="form-check-label" for="{self.attributes["id"]}">
+                        {self.label}
+                    </label>
+                </div>
+            '''
+
+    class SwitchCheckbox(_Input):
         def __init__(
             self,
             name: str,
@@ -420,15 +481,22 @@ class Input(_Input):
             checked: bool = False,
             attributes: dict[str, str] = {},
         ):
-            super().__init__(
-                name,
-                value,
-                label=label,
-                type="checkbox",
-                is_switch=True,
-                checked=checked,
-                attributes=attributes,
-            )
+            super().__init__(name, value, type="checkbox", attributes=attributes)
+            self.attributes["class"] = "form-check-input"
+            self.label = label
+
+            if checked:
+                self.attributes["checked"] = 1
+
+        def _build(self) -> str:
+            return f'''
+                <div class="form-check form-switch">
+                    <input {flatten_attributes(self.attributes)} />
+                    <label class="form-check-label" for="{self.attributes["id"]}">
+                        {self.label}
+                    </label>
+                </div>
+            '''
 
 
 class Textarea(FormElement):
@@ -439,11 +507,20 @@ class Textarea(FormElement):
         *,
         attributes: dict[str, str] = {},
     ):
-        super().__init__(name, value, attributes=attributes)
+        super().__init__(name, attributes=attributes)
+        self.attributes["value"] = value
 
-    def build(self) -> str:
+    def set_value(self, value: str):
+        self.attributes["value"] = value
+
+    def _build(self) -> str:
+        value = ""
+
+        if "value" in self.attributes:
+            value = self.attributes.pop("value")
+
         return f"""
-            <textarea {flatten_attributes(self.attributes)}>{self.value}</textarea>
+            <textarea {flatten_attributes(self.attributes)}>{value}</textarea>
         """
 
 
@@ -453,21 +530,24 @@ class Selectbox(FormElement):
         name: str,
         value: Union[int, float, str] = "",
         *,
-        options: dict[str, str] = {},
+        options: dict[str, str],
         mapped_options: dict[str, str] = {},
         attributes: dict[str, str] = {},
     ):
+        super().__init__(name, attributes=attributes)
+        self.attributes["value"] = value
+        self.attributes["class"] = "form-select"
         self.options = options
         self.mapped_options = mapped_options
 
-        if "class" not in attributes:
-            attributes["class"] = "form-select"
+    def set_value(self, value: str):
+        self.attributes["value"] = value
 
-        super().__init__(name, value, attributes=attributes)
+    def _build(self) -> str:
+        values = self.attributes.pop("value")
 
-    def build(self) -> str:
-        if not isinstance(self.value, list):
-            self.value = list(self.value or "")
+        if not isinstance(values, list):
+            values = [str(values) or ""]
 
         html = f"""
             <select {flatten_attributes(self.attributes)}>
@@ -479,7 +559,7 @@ class Selectbox(FormElement):
                 "data-optionvalue": self.mapped_options.get(item_value, ""),
             }
 
-            if item_value in self.value:
+            if item_value in values:
                 tmp_attributes["selected"] = 1
 
             html += f"""
@@ -504,7 +584,7 @@ class Listbox(FormElement):
         mapped_list_items: dict[str, str] = {},
         attributes: dict[str, str] = {},
     ):
-        self._id = uuid_text(self._name)[0:8]
+        self._id = short_uuid_text(self._name)
         self._name = name
         self.value = value
         self.text_input = text_input
@@ -512,7 +592,7 @@ class Listbox(FormElement):
         self.mapped_list_items = mapped_list_items
         self.attributes = attributes
 
-    def build(self) -> str:
+    def _build(self) -> str:
         html = f"""
             <div id="flexilist-{self._id}" class="flexinputs flexlist">
                 <div id="flexilist-input-{self._id}">{self.text_input()}</div>
@@ -554,16 +634,13 @@ class Button(FormElement):
         value: Union[int, float, str] = "",
         attributes: dict[str, str] = {},
     ):
+        super().__init__(name, attributes=attributes)
+        self.attributes["class"] = "btn btn-primary"
+        self.attributes["type"] = type
+        self.attributes["value"] = value
         self.label = label
-        attributes["type"] = type
-        attributes["value"] = value
 
-        if "class" not in attributes:
-            attributes["class"] = "btn btn-primary"
-
-        super().__init__(name, value, attributes=attributes)
-
-    def build(self) -> str:
+    def _build(self) -> str:
         return f"""
             <button {flatten_attributes(self.attributes)}>{self.label}</button>
         """
@@ -578,6 +655,10 @@ class FormGroup:
     def id(self) -> str:
         return self._id
 
+    @property
+    def to_string(self) -> str:
+        return str(self)
+
     def __init__(
         self,
         input: FormElement,
@@ -588,26 +669,43 @@ class FormGroup:
         help_text: str = "",
         attributes: dict[str, str] = {},
     ):
+        self.attributes = {}
+        self.attributes.update(attributes)
+        self.additionals: list[FormGroup] = []
         self.input = input
         self.label = label
         self.inline = inline
         self.colsize = colsize
         self.help_text = help_text
 
-        if "class" not in attributes:
-            attributes["class"] = "form-group flexinput-group"
+        if "class" not in self.attributes:
+            self.attributes["class"] = "form-group flexinput-group"
 
-        attributes["id"] = self._id = f"flexinput-group-{uuid_text(label)[0:8]}"
-        self.attributes = attributes
+        self.attributes["id"] = self._id = f"flexinput-group-{short_uuid_text(label)}"
 
-    def build(self) -> str:
+    def __str__(self) -> str:
+        html = ""
+
+        for additional in self.additionals:
+            html += additional._build()
+
+        return html + self._build()
+
+    def __add__(self, this: "FormGroup"):
+        if isinstance(this, FormGroup):
+            this.additionals.extend(self.additionals)
+            this.additionals.append(self)
+
+        return this
+
+    def _build(self) -> str:
         if self.inline:
             return f"""
                 <div class="row">
-                    <label class="form-label col-{12 - self.colsize}">{self.label}</label>
+                    <label class="col-form-label col-{12 - self.colsize}">{self.label}</label>
                     <div class="col-{self.colsize}">
                         <div {flatten_attributes(self.attributes)}>
-                            {self.input()}
+                            {self.input.to_string}
                             <small class="form-text text-muted">{self.help_text}</small>
                         </div>
                     </div>
@@ -615,27 +713,32 @@ class FormGroup:
             """
         else:
             return f"""
-                <div class="col-{self.colsize}">
-                    <div {flatten_attributes(self.attributes)}>
-                        <label class="form-label">{self.label}</label>
-                        {self.input()}
-                        <small class="form-text text-muted">{self.help_text}</small>
-                    </div>
+                <div {flatten_attributes(self.attributes)}>
+                    <label class="form-label">{self.label}</label>
+                    {self.input.to_string}
+                    <small class="form-text text-muted">{self.help_text}</small>
                 </div>
             """
 
 
 class FloatingLabel(FormGroup):
-    def build(self) -> str:
+    def _build(self) -> str:
         return f"""
             <div {flatten_attributes(self.attributes)}>
                 <div class="form-floating">
-                    {self.input()}
+                    {self.input.to_string}
                     <label class="form-label" for="{self.input.id}">{self.label}</label>
                 </div>
                 <small class="form-text text-muted">{self.help_text}</small>
             </div>
         """
+
+class Form:
+    pass
+
+
+class Table:
+    pass
 
 
 class Fleximodel(DeclarativeBase):
@@ -646,72 +749,6 @@ class Fleximodel(DeclarativeBase):
     def __repr__(self) -> str:
         return f"ID: {self.id}"
 
-    def session(callback: Callable[[Session, Any], Any]):
-        if Fleximodel.__SQLALCHEMY_ENGINE__:
-            return
-
-        def wrapper(*args, **kwargs):
-            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                return callback(session, *args, **kwargs)
-
-        return wrapper
-
-    def bind(callback: Callable[[Session, Any], Any], *args, **kwargs):
-        if not Fleximodel.__SQLALCHEMY_ENGINE__:
-            return
-
-        with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-            return callback(session, *args, **kwargs)
-
-    @classmethod
-    def bind_engine(cls, engine: Engine):
-        cls.__SQLALCHEMY_ENGINE__ = engine
-
-    @classmethod
-    def pk_name(cls) -> tuple[str]:
-        return (column.name for column in inspect(cls).primary_key)
-
-    @classmethod
-    def relationships(cls) -> list[str]:
-        return [column for column, _ in inspect(cls).relationships.items()]
-
-    @classmethod
-    def load(
-        cls,
-        ident: Union[int, tuple, dict],
-        bind_into: Optional[
-            Callable[
-                [
-                    "Fleximodel",
-                ],
-                "Fleximodel",
-            ]
-        ] = None,
-    ) -> Optional["Fleximodel"]:
-        return Fleximodel.Select(cls).load(cls, ident, bind_into)
-
-    @classmethod
-    def select(cls, offset: int = 1, max_items: int = 15) -> "Fleximodel.Select":
-        try:
-            offset = int(offset)
-        except Exception:
-            offset = 1
-
-        return (
-            Fleximodel.Select(
-                cls, func.count("*").over().label("__total_items_count__")
-            )
-            .limit(max_items)
-            .offset((offset - 1 if offset > 0 else 0) * max_items)
-        )
-
-    @classmethod
-    def create_all(cls):
-        if not Fleximodel.__SQLALCHEMY_ENGINE__:
-            return
-
-        return cls.metadata.create_all(Fleximodel.__SQLALCHEMY_ENGINE__)
-
     def get(
         self,
         dotted_name: str,
@@ -720,114 +757,20 @@ class Fleximodel(DeclarativeBase):
     ) -> Optional[Any]:
         return deep_access(self, dotted_name, default_value, callback)
 
-    class Select(Select):
-        inherit_cache = True
-
-        def load(
-            self,
-            model: "Fleximodel",
-            ident: Union[int, tuple, dict],
-            bind_into: Optional[
-                Callable[
-                    [
-                        Any,
-                    ],
-                    Any,
-                ]
-            ] = None,
-        ) -> Optional["Fleximodel"]:
-            if not callable(bind_into):
-
-                def bind_into(x):
-                    return x
-
-            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                if isinstance(ident, tuple):
-                    ident = {
-                        pk_name: ident[i] for i, pk_name in enumerate(self.pk_name())
-                    }
-
-                if item := session.query(model).get(ident):
-                    return bind_into(item)
-
-        def fetch(
-            self,
-            params: dict = {},
-            bind_into: Optional[
-                Callable[
-                    [
-                        Any,
-                    ],
-                    Any,
-                ]
-            ] = None,
-        ):
-            if not callable(bind_into):
-
-                def bind_into(x):
-                    return x
-
-            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                if item := session.execute(self, params).fetchone():
-                    if isinstance(item[0], Fleximodel):
-                        return bind_into(item[0])
-
-                    return bind_into(item._mapping)
-
-        def fetch_all(
-            self,
-            params: dict = {},
-            bind_into: Optional[
-                Callable[
-                    [
-                        Any,
-                    ],
-                    Any,
-                ]
-            ] = None,
-        ) -> tuple[list[Any], int, int, int]:
-            if not callable(bind_into):
-
-                def bind_into(x):
-                    return x
-
-            with Session(Fleximodel.__SQLALCHEMY_ENGINE__) as session:
-                if not [
-                    column
-                    for column in self._all_selected_columns
-                    if column._label == "__total_items_count__"
-                ]:
-                    self.add_columns(
-                        func.count("*").over().label("__total_items_count__")
-                    )
-
-                if items := session.execute(self, params).fetchall():
-                    if isinstance(items[0][0], Fleximodel):
-                        return (
-                            [bind_into(item[0]) for item in items],
-                            items[0][1],
-                            self._offset,
-                            self._limit,
-                        )
-
-                    return (
-                        [bind_into(item._mapping) for item in items],
-                        items[0]._mapping["__total_items_count__"],
-                        self._offset,
-                        self._limit,
-                    )
-
-            # results, total_count, offset, offset_limit
-            return ([], 0, 0, 0)
-
 
 class T(object):
     def __init__(self, properties: dict = {}):
-        self.build(properties)
+        self._build(properties)
         self.__properties__ = properties
         self.__total_items_count__: int = -1
 
-    def build(self, properties: dict) -> "T":
+    def __getitem__(self, key):
+        if key is Ellipsis:
+            return "Accessing all elements"
+        else:
+            return f"Accessing element {key}"
+
+    def _build(self, properties: dict) -> "T":
         for name, value in properties.items():
             if isinstance(value, dict):
                 setattr(self, name, T(value))
@@ -858,9 +801,7 @@ class T(object):
             if old_value := getattr(this, name, None):
                 last_name = name
 
-                if isinstance(old_value, object) and type(
-                    old_value
-                ).__name__ not in dir(__builtins__):
+                if isinstance(old_value, object) and type(old_value).__name__ not in dir(__builtins__):
                     this = old_value
 
         if last_name is not None:
@@ -871,53 +812,6 @@ class T(object):
                     raise e
 
                 return False
-
-    @Fleximodel.session
-    def load(
-        session: Session,
-        self,
-        statement: Union[str, Select],
-        params: dict = {},
-        execution_options: dict = {},
-    ) -> Optional["T"]:
-        if r := session.execute(
-            text(statement) if isinstance(statement, str) else statement,
-            params,
-            execution_options=execution_options,
-        ).fetchone():
-            return self.build(r._mapping)
-
-    @Fleximodel.session
-    def fetch(
-        session: Session,
-        self,
-        statement: Union[str, Select],
-        params: dict = {},
-        execution_options: dict = {},
-    ) -> Optional["T"]:
-        if r := session.execute(
-            text(statement) if isinstance(statement, str) else statement,
-            params,
-            execution_options=execution_options,
-        ).fetchone():
-            return T(self.__properties__).build(r._mapping)
-
-    @Fleximodel.session
-    def fetch_all(
-        session: Session,
-        self,
-        statement: Union[str, Select],
-        params: dict = {},
-        execution_options: dict = {},
-    ) -> list["T"]:
-        return [
-            T(self.__properties__).build(r._mapping)
-            for r in session.execute(
-                text(statement) if isinstance(statement, str) else statement,
-                params,
-                execution_options=execution_options,
-            ).fetchall()
-        ]
 
 
 class Flexihtml:
@@ -1013,7 +907,7 @@ class Flexihtml:
         def add(self, column: InstrumentedAttribute):
             self.__items[column.key] = {"column": column}
 
-        def build(self, name: str) -> str:
+        def _build(self, name: str) -> str:
             # if isinstance(column.property, _RelationshipDeclared):
             #     html += "---"
             pass
@@ -1022,7 +916,7 @@ class Flexihtml:
             html = f"<form {flatten_attributes(self.__attributes)}>"
 
             for name, _ in self.__items.items():
-                html += self.build(name)
+                html += self._build(name)
 
             return html + "</form>"
 
@@ -1078,9 +972,7 @@ class Flexihtml:
                     self.__items[line_uuid][column_uuid].update(column)
 
                     if callable(callback := column["callback"]):
-                        self.__items[line_uuid][column_uuid]["callback"] = callback(
-                            item
-                        )
+                        self.__items[line_uuid][column_uuid]["callback"] = callback(item)
                     elif (method := getattr(item, callback, None)) and callable(method):
                         self.__items[line_uuid][column_uuid]["callback"] = method()
                     elif value := getattr(item, callback, None):
@@ -1091,9 +983,7 @@ class Flexihtml:
             if total_items <= 0:
                 return self
 
-            if (current := math.ceil(offset / item_per_page) + 1) > (
-                max_button := math.ceil(total_items / item_per_page)
-            ):
+            if (current := math.ceil(offset / item_per_page) + 1) > (max_button := math.ceil(total_items / item_per_page)):
                 current = max_button
 
             if current < 1:
@@ -1105,9 +995,7 @@ class Flexihtml:
             if current <= nb_buttons / 2:
                 self.__paginations = [i + 1 for i in range(0, nb_buttons)]
             elif current > max_button - (nb_buttons / 2):
-                self.__paginations = [
-                    i + 1 for i in range(max_button - nb_buttons, max_button)
-                ]
+                self.__paginations = [i + 1 for i in range(max_button - nb_buttons, max_button)]
             else:
                 self.__paginations = [
                     i + 1
@@ -1216,21 +1104,13 @@ class Flexihtml:
                 else:
                     sa_column = searchbox["column"]
 
-                if sa_column is not False and (
-                    search_value_1 := query_params.get(sb_value_1, "").strip()
-                ):
+                if sa_column is not False and (search_value_1 := query_params.get(sb_value_1, "").strip()):
                     self.__items[column_name]["input_value_1"] = search_value_1
-                    self.__items[column_name]["input_value_2"] = (
-                        search_value_2 := query_params.get(sb_value_2, "").strip()
-                    )
-                    self.__items[column_name]["exp_selected"] = (
-                        exp := query_params.get(sb_name, "").strip()
-                    )
+                    self.__items[column_name]["input_value_2"] = (search_value_2 := query_params.get(sb_value_2, "").strip())
+                    self.__items[column_name]["exp_selected"] = (exp := query_params.get(sb_name, "").strip())
 
                     if callable(callback := searchbox["callback"]):
-                        select = callback(
-                            select, sa_column, exp, search_value_1, search_value_2
-                        )
+                        select = callback(select, sa_column, exp, search_value_1, search_value_2)
                     else:
                         if exp == "is_equal":
                             select = select.where(sa_column == search_value_1)
@@ -1245,40 +1125,24 @@ class Flexihtml:
                         elif exp == "is_greater_equal_than":
                             select = select.where(sa_column >= search_value_1)
                         elif exp == "is_like":
-                            select = select.where(
-                                sa_column.ilike(f"%{search_value_1}%")
-                            )
+                            select = select.where(sa_column.ilike(f"%{search_value_1}%"))
                         elif exp == "is_not_like":
-                            select = select.where(
-                                sa_column.not_ilike(f"%{search_value_1}%")
-                            )
+                            select = select.where(sa_column.not_ilike(f"%{search_value_1}%"))
                         elif exp == "is_null":
                             select = select.where(sa_column == null())
                         elif exp == "is_not_null":
                             select = select.where(sa_column != null())
                         elif exp in ["is_between", "is_not_between"] and search_value_2:
                             if exp == "is_between":
-                                select = select.where(
-                                    sa_column.between(search_value_1, search_value_2)
-                                )
+                                select = select.where(sa_column.between(search_value_1, search_value_2))
                             else:
-                                select = select.where(
-                                    not_(
-                                        sa_column.between(
-                                            search_value_1, search_value_2
-                                        )
-                                    )
-                                )
+                                select = select.where(not_(sa_column.between(search_value_1, search_value_2)))
                         elif exp in ["is_in", "is_not_in"]:
                             # TODO: not yet test
                             if exp == "is_in":
-                                select = select.where(
-                                    sa_column.in_(search_value_1.split(","))
-                                )
+                                select = select.where(sa_column.in_(search_value_1.split(",")))
                             else:
-                                select = select.where(
-                                    sa_column.not_in(search_value_1.split(","))
-                                )
+                                select = select.where(sa_column.not_in(search_value_1.split(",")))
                         elif exp in ["is_point", "is_polygon", "is_in_radius"]:
                             continue
                         else:
@@ -1396,15 +1260,3 @@ class Flexihtml:
                 "callback": None,
                 "is_subquery": is_subquery,
             }
-
-        def reset_column(
-            self,
-            column: Column,
-            exp_options: dict[str, str] = {},
-            value_type: str = "",
-            value_options: dict[str, str] = {},
-            callback: Callable[
-                [Select, Column, str, str, Optional[str]], Select
-            ] = None,
-        ):
-            pass

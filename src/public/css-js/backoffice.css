@@ -144,11 +144,12 @@ main.columns section.aside:nth-child(2) {
     width: calc(100% - 340px);
 }
 
-form .form-group {
+.form-group {
     margin-bottom: 25px;
 }
 
-form .form-group .form-label {
+.form-group .form-label,
+.form-group .col-form-label {
     font-size: 17px;
     font-weight: bold;
 }
