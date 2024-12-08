@@ -132,7 +132,7 @@ main.columns {
     justify-content: space-between;
 }
 
-main.columns > section.aside {
+main.columns>section.aside {
     display: inline-block;
 }
 
@@ -154,6 +154,15 @@ main.columns section.aside:nth-child(2) {
     font-weight: bold;
 }
 
+textarea.form-control {
+    min-height: 140px !important;
+}
+
+.flexilist-ul {
+    overflow-y: auto;
+    max-height: 200px;
+}
+
 .flexilist-ul li.flexilist-ul-item {
     display: block;
 }
@@ -163,16 +172,20 @@ main.columns section.aside:nth-child(2) {
 }
 
 .flexilist-ul li a.flexilist-ul-item-edit.is-connected {
-    font-weight: bold;
+    color: #101010;
     text-decoration: underline;
 }
 
-.flexilist-ul li a.flexilist-ul-item-edit.is-deleted {
+.flexilist-ul li.is-deleted a.flexilist-ul-item-edit {
     text-decoration: line-through;
 }
 
 .flexilist-ul li.flexilist-ul-item:hover a.flexilist-ul-item-edit {
     text-decoration: underline;
+}
+
+.flexilist-ul li.flexilist-ul-item.is-deleted:hover a.flexilist-ul-item-edit {
+    text-decoration: line-through;
 }
 
 .flexilist-ul li a.flexilist-ul-item-action {

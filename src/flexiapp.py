@@ -144,6 +144,27 @@ def is_column_expression_lookup(column: InstrumentedAttribute) -> bool:
     return column.type.__class__.__name__.lower() in ["hasexpressionlookup"]
 
 
+def deep_access(
+    this: object,
+    dotted_name: str,
+    default_value: Any = None,
+    callback: Optional[Callable[[Any], Any]] = None,
+) -> Any:
+    value = default_value
+
+    for name in dotted_name.split("."):
+        if value := getattr(this, name, None):
+            if isinstance(value, object):
+                this = value
+        else:
+            return default_value
+
+    if callable(callback):
+        return callback(value)
+
+    return value
+
+
 def html_encode(to_encode: str) -> str:
     for subject, replacement in {"&": "&amp;", '"': "&quot;", "'": "&#039;", "<": "&lt;", ">": "&gt;"}.items():
         to_encode = to_encode.replace(subject, replacement)
@@ -169,42 +190,63 @@ def flatten_attributes(attributes: dict) -> str:
     return html.strip()
 
 
-def deep_access(
-    this: object,
-    dotted_name: str,
-    default_value: Any = None,
-    callback: Optional[Callable[[Any], Any]] = None,
-) -> Any:
-    value = default_value
+class XHtmlElement:
+    def __init__(self, attributes: dict[str, str] = {}):
+        self._attributes = {}
+        self._attributes.update(attributes)
+        self._previous_items: list[XHtmlElement] = []
 
-    for name in dotted_name.split("."):
-        if value := getattr(this, name, None):
-            if isinstance(value, object):
-                this = value
-        else:
-            return default_value
+    def __add__(self, this: "XHtmlElement") -> "XHtmlElement":
+        if isinstance(this, XHtmlElement):
+            this._previous_items.extend(self._previous_items)
+            this._previous_items.append(self)
 
-    if callable(callback):
-        return callback(value)
+        return this
 
-    return value
+    def __getitem__(self, key: str) -> Any | None:
+        if key is Ellipsis:
+            return self._attributes
+
+        return self._attributes.get(key)
+
+    def __setitem__(self, key: str, value: int | float | str):
+        if key is Ellipsis and isinstance(value, dict):
+            self._attributes.update(value)
+        elif key is not Ellipsis:
+            self._attributes[key] = value
+
+    def template(self) -> str:
+        return ""
+
+    def previous_template(self) -> str:
+        html = ""
+
+        for item in self._previous_items:
+            html += item.template()
+
+        return html
+
+    def content(self) -> str:
+        return self.previous_template() + self.template()
 
 
-class Boxing:
-    pass
+class HtmlElement(XHtmlElement):
+    def __init__(self, content: str | XHtmlElement, *, tag: str = "div", attributes: dict[str, str] = {}):
+        super().__init__(attributes)
+        self._tag = tag
+        self._content = content
+
+    def template(self) -> str:
+        tag = self._tag.lower()
+        content = self._content
+
+        if isinstance(self._content, XHtmlElement):
+            content = self._content.template()
+
+        return f"<{tag} {flatten_attributes(self._attributes)}>{content}</{tag}>"
 
 
-class IncrementalElement:
-    def __init__(self):
-        self._items: list[IncrementalElement] = []
-
-    def __add__(self, this: "IncrementalElement"):
-        if isinstance(this, IncrementalElement):
-            this._items.extend(self._items)
-            this._items.append(self)
-
-
-class FormElement:
+class FormElement(XHtmlElement):
     @property
     def id(self) -> str:
         return self._id
@@ -214,446 +256,285 @@ class FormElement:
         return self._name
 
     @property
-    def to_string(self) -> str:
-        return str(self)
+    def value(self) -> int | float | str:
+        return self._attributes["value"]
 
-    def __init__(
-        self,
-        name: str,
-        *,
-        attributes: dict[str, str] = {},
-    ):
-        self.attributes = {}
-        self.additionals: list[FormElement] = []
-        self.attributes.update(attributes)
-        self.attributes["name"] = self._name = name
-        self.attributes["id"] = self._id = f"flexinput-{short_uuid_text(self._name)}"
-
-        if "class" not in self.attributes:
-            self.attributes["class"] = "form-control"
-
-    def __str__(self) -> str:
-        html = ""
-
-        for additional in self.additionals:
-            html += additional._build()
-
-        return html + self._build()
-
-    def __add__(self, this: "FormElement"):
-        if isinstance(this, FormElement):
-            this.additionals.extend(self.additionals)
-            this.additionals.append(self)
-
-        return this
-
-    def _build(self) -> str:
-        raise NotImplementedError()
-
-    def attribute(self, name: str, value: str | None = None) -> str | None:
-        if not value:
-            return self.attributes.get(name)
-
-        self.attributes[name] = value
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(attributes)
+        self._attributes["id"] = self._id = f"flexinput-{short_uuid_text(name)}"
+        self._attributes["name"] = self._name = name
+        self._attributes["value"] = value
 
 
-class _Input(FormElement):
-    def __init__(
-        self,
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        type: str = "text",
-        attributes: dict[str, str] = {},
-    ):
-        super().__init__(name, attributes=attributes)
-        self.attributes["type"] = type
-        self.attributes["value"] = value
+class Input(FormElement):
+    def __init__(self, name: str, value: int | float | str = "", *, type: str = "text", attributes: dict[str, str] = {}):
+        super().__init__(name, value, attributes=attributes)
+        self._attributes["type"] = type
+        self._attributes["class"] = "form-control"
 
-    def set_value(self, value: Union[int, float, str]):
-        self.attributes["value"] = value
-
-    def _build(self) -> str:
+    def template(self) -> str:
         return f"""
-            <input {flatten_attributes(self.attributes)} />
+            <input {flatten_attributes(self._attributes)} />
         """
 
 
-class Input(_Input):
-    class Date(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="date", attributes=attributes)
+class Date(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="date", attributes=attributes)
 
-    class Datetime(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="datetime", attributes=attributes)
 
-    class Time(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="time", attributes=attributes)
+class Datetime(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="datetime", attributes=attributes)
 
-    class Hidden(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="hidden", attributes=attributes)
 
-    class Password(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="password", attributes=attributes)
+class Time(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="time", attributes=attributes)
 
-    class Int(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int] = "",
-            *,
-            step: int = 1,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="number", attributes=attributes)
-            self.attributes["step"] = step
 
-    class Float(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[float] = "",
-            *,
-            step: int | float = 0.01,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="number", attributes=attributes)
-            self.attributes["step"] = step
+class Hidden(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="hidden", attributes=attributes)
 
-    class Text(_Input):
-        @property
-        def datalist_id(self) -> str:
-            return self._datalist_id
 
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            datalist: Union[list[str], dict[str, str]] = [],
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="text", attributes=attributes)
-            self.attributes["list"] = self._datalist_id = f"datalist-{self.attributes['id']}"
-            self._datalist = datalist
+class Password(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="password", attributes=attributes)
 
-        def _build(self) -> str:
-            html_datalist = f'<datalist id="{self._datalist_id}">'
 
-            if isinstance(self._datalist, dict):
-                for value, label in self._datalist.items():
-                    html_datalist += f"<option {flatten_attributes({'value': value})}>{label}</option>"
-            elif isinstance(self._datalist, list):
-                for value in self._datalist:
-                    html_datalist += f"<option {flatten_attributes({'value': value})} />"
+class Int(Input):
+    def __init__(self, name: str, value: Union[int] = "", *, step: int = 1, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="number", attributes=attributes)
+        self._attributes["step"] = step
 
-            html_datalist += "</datalist>"
 
-            return f"""
-                {html_datalist}
-                <input {flatten_attributes(self.attributes)} />
-            """
+class Float(Input):
+    def __init__(self, name: str, value: Union[float] = "", *, step: int | float = 0.01, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="number", attributes=attributes)
+        self._attributes["step"] = step
 
-    class File(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="file", attributes=attributes)
 
-    class Photo(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="file", attributes=attributes)
-            self.attributes["accept"] = "image/*"
-            self.attributes["multiple"] = ""
+class Text(Input):
+    @property
+    def datalist_id(self) -> str:
+        return self._datalist_id
 
-        def _build(self) -> str:
-            self.attributes["onchange"] = f"""
-                return (function(event) {{
-                    const [file] = event.target.files;
-                    const $input = $("img#showcase-{self._id}");
+    def __init__(self, name: str, value: int | float | str = "", *, datalist: list[str] | dict[str, str] = [], attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="text", attributes=attributes)
+        self._datalist = datalist
+        self._attributes["list"] = self._datalist_id = f"datalist-{self._attributes['id']}"
 
-                    if (file) {{
-                        $input.attr("src", window.URL.createObjectURL(file));
-                        $input.on("onload", function() {{
-                            window.URL.revokeObjectURL($input.attr("src"));
-                        }});
+    def template(self) -> str:
+        html_datalist = f'<datalist id="{self._datalist_id}">'
 
-                        return true;
-                    }}
+        if isinstance(self._datalist, dict):
+            for value, label in self._datalist.items():
+                html_datalist += f"<option {flatten_attributes({'value': value})}>{label}</option>"
+        elif isinstance(self._datalist, list):
+            for value in self._datalist:
+                html_datalist += f"<option {flatten_attributes({'value': value})} />"
 
-                    return $input.attr("src", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
-                }})(event);
-            """
-            html = f"""
-                <div class="mb-2">
-                    <img id="showcase-{self._id}" src="" class="img-fluid border border-2 p-1" />
-                </div>
-            """
+        html_datalist += "</datalist>"
 
-            return html + super()._build()
+        return f"""
+            {html_datalist}
+            <input {flatten_attributes(self._attributes)} />
+        """
 
-    class Video(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="file", attributes=attributes)
-            self.attributes["accept"] = "video/*"
-            self.attributes["multiple"] = ""
 
-        def _build(self) -> str:
-            self.attributes["onchange"] = f"""
-                return (function(event) {{
-                    const [file] = event.target.files;
-                    const $input = $("video#showcase-{self._id}");
+class File(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="file", attributes=attributes)
 
-                    if (file) {{
-                        $input.attr("src", window.URL.createObjectURL(file));
-                        $input.on("onload", function() {{
-                            window.URL.revokeObjectURL($input.attr("src"));
-                        }});
 
-                        return true;
-                    }}
+class Photo(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="file", attributes=attributes)
+        self._attributes["multiple"] = ""
+        self._attributes["accept"] = "image/*"
 
-                    return $input.attr("src", "[NO FILE SELECTED]");
-                }})(event);
-            """
-            html = f"""
-                <div class="mb-2">
-                    <video id="showcase-{self._id}" src="[NO FILE SELECTED]" class="img-fluid border border-2 p-1" controls="controls">
-                        Your browser does not support the video tag.
-                    </video>
-                </div>
-            """
+    def template(self) -> str:
+        self._attributes["onchange"] = f"""
+            return (function(event) {{
+                const [file] = event.target.files;
+                const $input = $("img#showcase-{self._id}");
 
-            return html + super()._build()
+                if (file) {{
+                    $input.attr("src", window.URL.createObjectURL(file));
+                    $input.on("onload", function() {{
+                        window.URL.revokeObjectURL($input.attr("src"));
+                    }});
 
-    class Range(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            min_value: int | float = 0,
-            max_value: int | float = 100,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="range", attributes=attributes)
-            self.attributes["class"] = "form-range"
-            self.attributes["min"] = min_value
-            self.attributes["max"] = max_value
+                    return true;
+                }}
 
-    class Radio(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            label: str,
-            checked: bool = False,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="radio", attributes=attributes)
-            self.attributes["id"] = f"{self.attributes['id']}-{short_uuid_text(value)}"
-            self.attributes["class"] = "form-check-input"
-            self.label = label
+                return $input.attr("src", "[NO FILE SELECTED]");
+            }})(event);
+        """
+        html = f"""
+            <div class="mb-2">
+                <img id="showcase-{self._id}" src="[NO FILE SELECTED]" class="img-fluid border border-2 p-1" style="min-width: 312px; min-height: 162px;" />
+            </div>
+        """
 
-            if checked:
-                self.attributes["checked"] = 1
+        return html + super().template()
 
-        def _build(self) -> str:
-            return f'''
-                <div class="form-check">
-                    <input {flatten_attributes(self.attributes)} />
-                    <label class="form-check-label" for="{self.attributes["id"]}">
-                        {self.label}
-                    </label>
-                </div>
-            '''
 
-    class SwitchRadio(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            label: str,
-            checked: bool = False,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="radio", attributes=attributes)
-            self.attributes["id"] = f"{self.attributes['id']}-{short_uuid_text(value)}"
-            self.attributes["class"] = "form-check-input"
-            self.label = label
+class Video(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="file", attributes=attributes)
+        self._attributes["multiple"] = ""
+        self._attributes["accept"] = "video/*"
 
-            if checked:
-                self.attributes["checked"] = 1
+    def template(self) -> str:
+        self._attributes["onchange"] = f"""
+            return (function(event) {{
+                const [file] = event.target.files;
+                const $input = $("video#showcase-{self._id}");
 
-        def _build(self) -> str:
-            return f'''
-                <div class="form-check form-switch">
-                    <input {flatten_attributes(self.attributes)} />
-                    <label class="form-check-label" for="{self.attributes["id"]}">
-                        {self.label}
-                    </label>
-                </div>
-            '''
+                if (file) {{
+                    $input.attr("src", window.URL.createObjectURL(file));
+                    $input.on("onload", function() {{
+                        window.URL.revokeObjectURL($input.attr("src"));
+                    }});
 
-    class Checkbox(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            label: str,
-            checked: bool = False,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="checkbox", attributes=attributes)
-            self.attributes["class"] = "form-check-input"
-            self.label = label
+                    return true;
+                }}
 
-            if checked:
-                self.attributes["checked"] = 1
+                return $input.attr("src", "[NO FILE SELECTED]");
+            }})(event);
+        """
+        html = f"""
+            <div class="mb-2">
+                <video id="showcase-{self._id}" src="[NO FILE SELECTED]" class="img-fluid border border-2 p-1" controls="controls">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        """
 
-        def _build(self) -> str:
-            return f'''
-                <div class="form-check">
-                    <input {flatten_attributes(self.attributes)} />
-                    <label class="form-check-label" for="{self.attributes["id"]}">
-                        {self.label}
-                    </label>
-                </div>
-            '''
+        return html + super().template()
 
-    class SwitchCheckbox(_Input):
-        def __init__(
-            self,
-            name: str,
-            value: Union[int, float, str] = "",
-            *,
-            label: str,
-            checked: bool = False,
-            attributes: dict[str, str] = {},
-        ):
-            super().__init__(name, value, type="checkbox", attributes=attributes)
-            self.attributes["class"] = "form-check-input"
-            self.label = label
 
-            if checked:
-                self.attributes["checked"] = 1
+class Range(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, min_value: int | float = 0, max_value: int | float = 100, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="range", attributes=attributes)
+        self._attributes["min"] = min_value
+        self._attributes["max"] = max_value
+        self._attributes["class"] = "form-range"
 
-        def _build(self) -> str:
-            return f'''
-                <div class="form-check form-switch">
-                    <input {flatten_attributes(self.attributes)} />
-                    <label class="form-check-label" for="{self.attributes["id"]}">
-                        {self.label}
-                    </label>
-                </div>
-            '''
+
+class Radio(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, label: str, checked: bool = False, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="radio", attributes=attributes)
+        self.label = label
+        self._attributes["id"] = f"{self._attributes['id']}-{short_uuid_text(value)}"
+        self._attributes["class"] = "form-check-input"
+
+        if checked:
+            self._attributes["checked"] = 1
+
+    def template(self) -> str:
+        return f'''
+            <div class="form-check">
+                <input {flatten_attributes(self._attributes)} />
+                <label class="form-check-label" for="{self._attributes["id"]}">
+                    {self.label}
+                </label>
+            </div>
+        '''
+
+
+class SwitchRadio(Radio):
+    def template(self) -> str:
+        return f'''
+            <div class="form-check form-switch">
+                <input {flatten_attributes(self._attributes)} />
+                <label class="form-check-label" for="{self._attributes["id"]}">
+                    {self.label}
+                </label>
+            </div>
+        '''
+
+
+class Checkbox(Input):
+    def __init__(self, name: str, value: int | float | str = "", *, label: str, checked: bool = False, attributes: dict[str, str] = {}):
+        super().__init__(name, value, type="checkbox", attributes=attributes)
+        self.label = label
+        self._attributes["class"] = "form-check-input"
+
+        if checked:
+            self._attributes["checked"] = 1
+
+    def template(self) -> str:
+        return f'''
+            <div class="form-check">
+                <input {flatten_attributes(self._attributes)} />
+                <label class="form-check-label" for="{self._attributes["id"]}">
+                    {self.label}
+                </label>
+            </div>
+        '''
+
+
+class SwitchCheckbox(Checkbox):
+    def template(self) -> str:
+        return f'''
+            <div class="form-check form-switch">
+                <input {flatten_attributes(self._attributes)} />
+                <label class="form-check-label" for="{self._attributes["id"]}">
+                    {self.label}
+                </label>
+            </div>
+        '''
+
+
+class Button(Input):
+    def __init__(self, name: str, label: str = "Submit", *, type: str = "submit", value: int | float | str = "", attributes: dict[str, str] = {}):
+        super().__init__(name, value, type=type, attributes=attributes)
+        self.label = label
+        self._attributes["class"] = "btn btn-primary"
+
+    def template(self) -> str:
+        return f"""
+            <button {flatten_attributes(self._attributes)}>{self.label}</button>
+        """
 
 
 class Textarea(FormElement):
-    def __init__(
-        self,
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        attributes: dict[str, str] = {},
-    ):
-        super().__init__(name, attributes=attributes)
-        self.attributes["value"] = value
+    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+        super().__init__(name, value, attributes=attributes)
+        self._attributes["class"] = "form-control"
 
-    def set_value(self, value: str):
-        self.attributes["value"] = value
-
-    def _build(self) -> str:
+    def template(self) -> str:
         value = ""
 
-        if "value" in self.attributes:
-            value = self.attributes.pop("value")
+        if "value" in self._attributes:
+            value = self._attributes.pop("value")
 
         return f"""
-            <textarea {flatten_attributes(self.attributes)}>{value}</textarea>
+            <textarea {flatten_attributes(self._attributes)}>{value}</textarea>
         """
 
 
 class Selectbox(FormElement):
-    def __init__(
-        self,
-        name: str,
-        value: Union[int, float, str] = "",
-        *,
-        options: dict[str, str],
-        mapped_options: dict[str, str] = {},
-        attributes: dict[str, str] = {},
-    ):
-        super().__init__(name, attributes=attributes)
-        self.attributes["value"] = value
-        self.attributes["class"] = "form-select"
+    def __init__(self, name: str, value: int | float | str = "", *, options: dict[str, str], mapped_options: dict[str, str] = {}, attributes: dict[str, str] = {}):
+        super().__init__(name, value, attributes=attributes)
         self.options = options
         self.mapped_options = mapped_options
+        self._attributes["class"] = "form-select"
 
-    def set_value(self, value: str):
-        self.attributes["value"] = value
+    def template(self) -> str:
+        values = []
 
-    def _build(self) -> str:
-        values = self.attributes.pop("value")
+        if "value" in self._attributes:
+            values = self._attributes.pop("value")
 
         if not isinstance(values, list):
             values = [str(values) or ""]
 
         html = f"""
-            <select {flatten_attributes(self.attributes)}>
+            <select {flatten_attributes(self._attributes)}>
         """
 
         for item_value, item_label in self.options.items():
@@ -677,169 +558,163 @@ class Selectbox(FormElement):
 
 
 class Listbox(FormElement):
-    def __init__(
-        self,
-        name: str,
-        input: FormElement = Input.Text("xxxxx"),
-        *,
-        list_items: list[str] = [],
-        attributes: dict[str, str] = {},
-    ):
+    def __init__(self, name: str, input: FormElement, *, list_items: list[str] = [], attributes: dict[str, str] = {}):
         super().__init__(name, attributes=attributes)
         self.input = input
         self.list_items = list_items
-        self.additionals: list[FormGroup] = []
 
-    def _build(self) -> str:
-        self.input.attribute("oninput", f"""
-            return (function(item) {{
-                const $item = $(item);
-                const $is_connected = $('ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected');
-
-                if ($is_connected.length > 0)
-                    $is_connected.text($item.val());
-                else
-                    $('ul#flexilist-ul-{self._id}').append('<li>' + $item.val() + '</a>');
-            }})(this)
-        """)
-        self.input.attribute("onblur", f"""
-            return (function(item) {{
-                const $item = $(item);
-
-                $('ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit').removeClass('is-connected');
-                $item.val("");
-            }})(this)
-        """)
-
+    def template(self) -> str:
+        app_id = f"app_{short_uuid_text(self._id)}"
+        self.input["onblur"] = f"{app_id}.event_onblur(this);"
+        self.input["oninput"] = f"{app_id}.event_oninput(this);"
         html = f"""
             <div id="flexilist-{self._id}" class="flexinputs flexlist">
                 <div id="flexilist-input-{self._id}">
-                    {self.input.to_string}
+                    {self.input.content()}
                 </div>
-                <ul id="flexilist-ul-{self._id}" class="flexilist-ul mt-2 ps-0" style="max-height: 200px; overflow-y: auto;">
+                <div class="float-end">
+                    <a 
+                        href="javascript:void(0)",
+                        class="mt-2"
+                        onclick="{app_id}.add_item(this);">add</a>
+                </div>
+                <div class="clearfix"></div>
+                <ul 
+                    name="{self._name}"
+                    id="flexilist-ul-{self._id}" 
+                    class="flexilist-ul mt-2 ps-0">
         """
 
-        for i, item in enumerate(self.list_items):
-            tmp_attributes = {
-                "id": f"{self._id}-{i}",
-                "class": "d-block flexilist-ul-item",
-            }
-            tmp_attributes_item = {
-                "href": "javascript:void(0)",
-                "class": "flexilist-ul-item-edit",
-                "onclick": f"""
-                    return (function(item) {{
-                        const $item = $(item);
-
-                        $('ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit').removeClass('is-connected'); 
-                        $item.addClass('is-connected');
-                        $('#{self.input.id}').val($item.text()).focus(); 
-                    }})(this);
-                """,
-            }
-
-            tmp_attributes_item_action = {
-                "href": "javascript:void(0)",
-                "class": "flexilist-ul-item-action",
-            }
-
+        for item in self.list_items:
             html += f"""
-                    <li {flatten_attributes(tmp_attributes)}>
-                        &rarrhk; <a {flatten_attributes(tmp_attributes_item)}>{html_encode(item)}</a>
-                        <a {flatten_attributes(tmp_attributes_item_action)}>&ndash; <i class="fa-solid fa-trash"></i></a>
+                    <li class="d-block flexilist-ul-item">
+                        &rarrhk; <a 
+                            href="javascript:void(0)"
+                            class="flexilist-ul-item-edit"
+                            onclick="{app_id}.update_item(this);">{html_encode(item)}</a>
+                        <a 
+                            href="javascript:void(0)" 
+                            class="flexilist-ul-item-action"
+                            is-deleted="0"
+                            onclick="{app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
                     </li>
             """
 
-        html += """
+        html += f"""
                 </ul>
             </div>
+            <script>
+                const {app_id} = {{
+                    template_item: function(content, classname) {{
+                        return `<li class="d-block flexilist-ul-item">
+                            &rarrhk; <a 
+                                href="javascript:void(0)"
+                                class="flexilist-ul-item-edit ${{classname || ''}}"
+                                onclick="{app_id}.update_item(this);">${{content || ''}}</a>
+                            <a 
+                                href="javascript:void(0)" 
+                                class="flexilist-ul-item-action"
+                                is-deleted="0"
+                                onclick="{app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
+                        </li>`;
+                    }},
+                    add_item: function(button) {{
+                        const $button = $(button);
+                        const content = ($("#{self.input.id}").val() || "").trim();
+                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+
+                        if (content != "" && $is_connected.length == 0) {{
+                            $('ul#flexilist-ul-{self._id}').append(this.template_item(content));
+                            $("#{self.input.id}").val("");
+                        }} else if (content == "") {{
+                            $("#{self.input.id}").focus();
+                            $('ul#flexilist-ul-{self._id}').append(this.template_item('', 'is-connected'));
+                        }}
+                    }},
+                    update_item: function(item) {{
+                        const $item = $(item);
+
+                        if (!$item.parent("li").hasClass("is-deleted")) {{
+                            $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit").removeClass("is-connected"); 
+                            $item.addClass("is-connected");
+                            $("#{self.input.id}").val($item.text()).focus();
+                        }}
+                    }},
+                    delete_item: function(button) {{
+                        const $button = $(button);
+                        
+                        if ($button.attr("is-deleted") == "0") {{
+                            $button.attr("is-deleted", "1");
+                            $button.html('&ndash; <i class="fa-solid fa-trash-can-arrow-up"></i>');
+                            $button.parent("li").addClass("is-deleted");
+                        }} else {{
+                            $button.attr("is-deleted", "0");
+                            $button.html('&ndash; <i class="fa-solid fa-trash"></i>');
+                            $button.parent("li").removeClass("is-deleted");
+                        }}
+                    }},
+                    event_oninput: function(input) {{
+                        const $input = $(input);
+                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+
+                        if ($is_connected.length > 0)
+                            $is_connected.text($input.val());
+                    }},
+                    event_onblur: function(input) {{
+                        const $input = $(input);
+                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+
+                        if ($is_connected.length > 0) {{
+                            $is_connected.removeClass("is-connected");
+                            $input.val("");
+                        }}
+                        
+                        this.clean_items();
+                    }},
+                    clean_items: function() {{
+                        $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit").each(function(i, e) {{
+                            const $item = $(e);
+
+                            if ($item.is(":empty"))
+                                $item.parent("li").remove();
+                        }})
+                    }},
+                }};
+            </script>
         """
 
         return html
 
 
-class Button(FormElement):
-    def __init__(
-        self,
-        name: str,
-        label: str = "Submit",
-        *,
-        type: str = "submit",
-        value: Union[int, float, str] = "",
-        attributes: dict[str, str] = {},
-    ):
-        super().__init__(name, attributes=attributes)
-        self.attributes["class"] = "btn btn-primary"
-        self.attributes["type"] = type
-        self.attributes["value"] = value
-        self.label = label
-
-    def _build(self) -> str:
-        return f"""
-            <button {flatten_attributes(self.attributes)}>{self.label}</button>
-        """
-
-
-class InputGroup(FormElement):
+class Dictbox(FormElement):
     pass
 
 
-class FormGroup:
+class FormGroup(XHtmlElement):
     @property
     def id(self) -> str:
         return self._id
 
-    @property
-    def to_string(self) -> str:
-        return str(self)
-
-    def __init__(
-        self,
-        input: FormElement,
-        *,
-        label: str,
-        inline: bool = False,
-        colsize: int = 12,
-        help_text: str = "",
-        attributes: dict[str, str] = {},
-    ):
-        self.attributes = {}
-        self.attributes.update(attributes)
-        self.additionals: list[FormGroup] = []
+    def __init__(self, input: FormElement, *, label: str, colsize: int = 12, help_text: str = "", attributes: dict[str, str] = {}):
+        super().__init__(attributes)
         self.input = input
         self.label = label
-        self.inline = inline
         self.colsize = colsize
         self.help_text = help_text
+        self._attributes["id"] = self._id = f"flexinput-group-{short_uuid_text(label)}"
+        self._attributes["class"] = "form-group flexinput-group"
 
-        if "class" not in self.attributes:
-            self.attributes["class"] = "form-group flexinput-group"
+    def template(self) -> str:
+        if isinstance(self.input, Hidden):
+            return self.input.content()
 
-        self.attributes["id"] = self._id = f"flexinput-group-{short_uuid_text(label)}"
-
-    def __str__(self) -> str:
-        html = ""
-
-        for additional in self.additionals:
-            html += additional._build()
-
-        return html + self._build()
-
-    def __add__(self, this: "FormGroup"):
-        if isinstance(this, FormGroup):
-            this.additionals.extend(self.additionals)
-            this.additionals.append(self)
-
-        return this
-
-    def _build(self) -> str:
-        if self.inline:
+        if self.colsize < 12:
             return f"""
-                <div class="row">
-                    <label class="col-form-label col-{12 - self.colsize}">{self.label}</label>
-                    <div class="col-{self.colsize}">
-                        <div {flatten_attributes(self.attributes)}>
-                            {self.input.to_string}
+                <div {flatten_attributes(self._attributes)}>
+                    <div class="row">
+                        <label class="col-form-label col-{12 - self.colsize}">{self.label}</label>
+                        <div class="col-{self.colsize}">
+                            {self.input.content()}
                             <small class="form-text text-muted">{self.help_text}</small>
                         </div>
                     </div>
@@ -847,20 +722,20 @@ class FormGroup:
             """
         else:
             return f"""
-                <div {flatten_attributes(self.attributes)}>
+                <div {flatten_attributes(self._attributes)}>
                     <label class="form-label">{self.label}</label>
-                    {self.input.to_string}
+                    {self.input.content()}
                     <small class="form-text text-muted">{self.help_text}</small>
                 </div>
             """
 
 
 class FloatingLabel(FormGroup):
-    def _build(self) -> str:
+    def template(self) -> str:
         return f"""
-            <div {flatten_attributes(self.attributes)}>
+            <div {flatten_attributes(self._attributes)}>
                 <div class="form-floating">
-                    {self.input.to_string}
+                    {self.input.content()}
                     <label class="form-label" for="{self.input.id}">{self.label}</label>
                 </div>
                 <small class="form-text text-muted">{self.help_text}</small>
@@ -868,8 +743,32 @@ class FloatingLabel(FormGroup):
         """
 
 
-class Form:
-    pass
+class Form(XHtmlElement):
+    class e:
+        Input: FormElement = Input
+        Date: FormElement = Date
+        Time: FormElement = Time
+        Datetime: FormElement = Datetime
+        Hidden: FormElement = Hidden
+        Password: FormElement = Password
+        Int: FormElement = Int
+        Float: FormElement = Float
+        File: FormElement = File
+        Photo: FormElement = Photo
+        Video: FormElement = Video
+        Range: FormElement = Range
+        Radio: FormElement = Radio
+        SwitchRadio: FormElement = SwitchRadio
+        Checkbox: FormElement = Checkbox
+        SwitchCheckbox: FormElement = SwitchCheckbox
+        Button: FormElement = Button
+        Text: FormElement = Text
+        Textarea: FormElement = Textarea
+        Selectbox: FormElement = Selectbox
+        Listbox: FormElement = Listbox
+        Dictbox: FormElement = Dictbox
+        FormGroup: XHtmlElement = FormGroup
+        FloatingLabel: XHtmlElement = FloatingLabel
 
 
 class Table:
@@ -895,7 +794,7 @@ class Fleximodel(DeclarativeBase):
 
 class T(object):
     def __init__(self, properties: dict = {}):
-        self._build(properties)
+        self.content(properties)
         self.__properties__ = properties
         self.__total_items_count__: int = -1
 
@@ -905,7 +804,7 @@ class T(object):
         else:
             return f"Accessing element {key}"
 
-    def _build(self, properties: dict) -> "T":
+    def content(self, properties: dict) -> "T":
         for name, value in properties.items():
             if isinstance(value, dict):
                 setattr(self, name, T(value))
@@ -1042,7 +941,7 @@ class Flexihtml:
         def add(self, column: InstrumentedAttribute):
             self.__items[column.key] = {"column": column}
 
-        def _build(self, name: str) -> str:
+        def content(self, name: str) -> str:
             # if isinstance(column.property, _RelationshipDeclared):
             #     html += "---"
             pass
@@ -1051,7 +950,7 @@ class Flexihtml:
             html = f"<form {flatten_attributes(self.__attributes)}>"
 
             for name, _ in self.__items.items():
-                html += self._build(name)
+                html += self.content(name)
 
             return html + "</form>"
 
