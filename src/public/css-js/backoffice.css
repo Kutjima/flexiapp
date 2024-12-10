@@ -163,28 +163,33 @@ textarea.form-control {
     max-height: 200px;
 }
 
+.flexilist-ul.tallest {
+    max-height: 400px;
+}
+
 .flexilist-ul li.flexilist-ul-item {
     display: block;
 }
 
-.flexilist-ul li a.flexilist-ul-item-edit {
+.flexilist-ul li .flexilist-ul-item-edit,
+.flexilist-ul li .flexilist-ul-item-edit a {
     text-decoration: none;
 }
 
-.flexilist-ul li a.flexilist-ul-item-edit.is-connected {
+.flexilist-ul li .flexilist-ul-item-edit.is-connected,
+.flexilist-ul li .flexilist-ul-item-edit.is-connected a {
     color: #101010;
-    text-decoration: underline;
 }
 
-.flexilist-ul li.is-deleted a.flexilist-ul-item-edit {
+.flexilist-ul li.is-deleted .flexilist-ul-item-edit {
     text-decoration: line-through;
 }
 
-.flexilist-ul li.flexilist-ul-item:hover a.flexilist-ul-item-edit {
-    text-decoration: underline;
+.flexilist-ul li.flexilist-ul-item:hover .flexilist-ul-item-edit {
+    color: #101010;
 }
 
-.flexilist-ul li.flexilist-ul-item.is-deleted:hover a.flexilist-ul-item-edit {
+.flexilist-ul li.flexilist-ul-item.is-deleted:hover .flexilist-ul-item-edit {
     text-decoration: line-through;
 }
 
@@ -196,6 +201,10 @@ textarea.form-control {
 
 .flexilist-ul li.flexilist-ul-item:hover a.flexilist-ul-item-action {
     opacity: 1;
+}
+
+.flexinputs.flexlist .form-group {
+    margin-bottom: 5px !important;
 }
 
 table th {

@@ -190,9 +190,26 @@ def flatten_attributes(attributes: dict) -> str:
     return html.strip()
 
 
+class ModelT:
+    def __init__(self):
+        self._properties: dict = {}
+
+    def __getitem__(self, key: str) -> Any | None:
+        if key is Ellipsis:
+            return self._properties
+
+        return self._properties.get(key)
+
+    def __setitem__(self, key: str, value: int | float | str):
+        if key is Ellipsis and isinstance(value, dict):
+            self._properties.update(value)
+        elif key is not Ellipsis:
+            self._properties[key] = value
+
+
 class XHtmlElement:
     def __init__(self, attributes: dict[str, str] = {}):
-        self._attributes = {}
+        self._attributes: dict[str, str] = {}
         self._attributes.update(attributes)
         self._previous_items: list[XHtmlElement] = []
 
@@ -343,6 +360,10 @@ class Text(Input):
         """
 
 
+class Textauto(Text):
+    pass
+
+
 class File(Input):
     def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="file", attributes=attributes)
@@ -351,30 +372,34 @@ class File(Input):
 class Photo(Input):
     def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="file", attributes=attributes)
+        self.app_id = f"app_{short_uuid_text(self._id)}"
         self._attributes["multiple"] = ""
         self._attributes["accept"] = "image/*"
 
     def template(self) -> str:
-        self._attributes["onchange"] = f"""
-            return (function(event) {{
-                const [file] = event.target.files;
-                const $input = $("img#showcase-{self._id}");
-
-                if (file) {{
-                    $input.attr("src", window.URL.createObjectURL(file));
-                    $input.on("onload", function() {{
-                        window.URL.revokeObjectURL($input.attr("src"));
-                    }});
-
-                    return true;
-                }}
-
-                return $input.attr("src", "[NO FILE SELECTED]");
-            }})(event);
-        """
+        self._attributes["onchange"] = f"{self.app_id}.event_onchange(this);"
         html = f"""
+            <script>
+                const {self.app_id} = {{
+                    event_onchange: function(input) {{
+                        const [file] = input.files;
+                        const $showcase = $("img#showcase-{self._id}");
+
+                        if (file) {{
+                            $showcase.attr("src", window.URL.createObjectURL(file));
+                            $showcase.on("onload", function() {{
+                                window.URL.revokeObjectURL($showcase.attr("src"));
+                            }});
+
+                            return true;
+                        }}
+
+                        return $showcase.attr("src", "#[NO FILE SELECTED]");
+                    }},
+                }};
+            </script>
             <div class="mb-2">
-                <img id="showcase-{self._id}" src="[NO FILE SELECTED]" class="img-fluid border border-2 p-1" style="min-width: 312px; min-height: 162px;" />
+                <img id="showcase-{self._id}" src="#[NO FILE SELECTED]" class="img-fluid border border-2 p-1" style="min-width: 312px; min-height: 162px;" />
             </div>
         """
 
@@ -384,30 +409,34 @@ class Photo(Input):
 class Video(Input):
     def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="file", attributes=attributes)
+        self.app_id = f"app_{short_uuid_text(self._id)}"
         self._attributes["multiple"] = ""
         self._attributes["accept"] = "video/*"
 
     def template(self) -> str:
-        self._attributes["onchange"] = f"""
-            return (function(event) {{
-                const [file] = event.target.files;
-                const $input = $("video#showcase-{self._id}");
-
-                if (file) {{
-                    $input.attr("src", window.URL.createObjectURL(file));
-                    $input.on("onload", function() {{
-                        window.URL.revokeObjectURL($input.attr("src"));
-                    }});
-
-                    return true;
-                }}
-
-                return $input.attr("src", "[NO FILE SELECTED]");
-            }})(event);
-        """
+        self._attributes["onchange"] = f"{self.app_id}.event_onchange(this);"
         html = f"""
+            <script>
+                const {self.app_id} = {{
+                    event_onchange: function(input) {{
+                        const [file] = input.files;
+                        const $showcase = $("video#showcase-{self._id}");
+
+                        if (file) {{
+                            $showcase.attr("src", window.URL.createObjectURL(file));
+                            $showcase.on("onload", function() {{
+                                window.URL.revokeObjectURL($showcase.attr("src"));
+                            }});
+
+                            return true;
+                        }}
+
+                        return $showcase.attr("src", "#[NO FILE SELECTED]");
+                    }},
+                }};
+            </script>
             <div class="mb-2">
-                <video id="showcase-{self._id}" src="[NO FILE SELECTED]" class="img-fluid border border-2 p-1" controls="controls">
+                <video id="showcase-{self._id}" src="#[NO FILE SELECTED]" class="img-fluid border border-2 p-1" controls="controls">
                     Your browser does not support the video tag.
                 </video>
             </div>
@@ -439,7 +468,7 @@ class Radio(Input):
             <div class="form-check">
                 <input {flatten_attributes(self._attributes)} />
                 <label class="form-check-label" for="{self._attributes["id"]}">
-                    {self.label}
+                    {html_encode(self.label)}
                 </label>
             </div>
         '''
@@ -451,7 +480,7 @@ class SwitchRadio(Radio):
             <div class="form-check form-switch">
                 <input {flatten_attributes(self._attributes)} />
                 <label class="form-check-label" for="{self._attributes["id"]}">
-                    {self.label}
+                    {html_encode(self.label)}
                 </label>
             </div>
         '''
@@ -471,7 +500,7 @@ class Checkbox(Input):
             <div class="form-check">
                 <input {flatten_attributes(self._attributes)} />
                 <label class="form-check-label" for="{self._attributes["id"]}">
-                    {self.label}
+                    {html_encode(self.label)}
                 </label>
             </div>
         '''
@@ -483,7 +512,7 @@ class SwitchCheckbox(Checkbox):
             <div class="form-check form-switch">
                 <input {flatten_attributes(self._attributes)} />
                 <label class="form-check-label" for="{self._attributes["id"]}">
-                    {self.label}
+                    {html_encode(self.label)}
                 </label>
             </div>
         '''
@@ -558,15 +587,33 @@ class Selectbox(FormElement):
 
 
 class Listbox(FormElement):
-    def __init__(self, name: str, input: FormElement, *, list_items: list[str] = [], attributes: dict[str, str] = {}):
+    def __init__(self, name: str, *, input: FormElement, list_items: list[str] = [], attributes: dict[str, str] = {}):
+        if not isinstance(input, (Int, Float, Text, Textauto, Textarea, Selectbox)):
+            raise ValueError(f"Param 'input' must be Int, Float, Text, Textauto, Textarea or Selectbox. Got: {type(input)}.")
+
         super().__init__(name, attributes=attributes)
+        self.app_id = f"app_{short_uuid_text(self._id)}"
         self.input = input
         self.list_items = list_items
 
+    def item_template(self, content: str, classname: str = "") -> str:
+        return f"""
+            <li class="d-block flexilist-ul-item">
+                &rarrhk; <a 
+                    href="javascript:void(0)"
+                    class="flexilist-ul-item-edit {classname}"
+                    onclick="{self.app_id}.update_item(this);">{content}</a>
+                <a 
+                    href="javascript:void(0)"
+                    class="flexilist-ul-item-action"
+                    is-deleted="0"
+                    onclick="{self.app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
+            </li>
+        """
+
     def template(self) -> str:
-        app_id = f"app_{short_uuid_text(self._id)}"
-        self.input["onblur"] = f"{app_id}.event_onblur(this);"
-        self.input["oninput"] = f"{app_id}.event_oninput(this);"
+        self.input["onblur"] = f"{self.app_id}.event_onblur(this);"
+        self.input["oninput"] = f"{self.app_id}.event_oninput(this);"
         html = f"""
             <div id="flexilist-{self._id}" class="flexinputs flexlist">
                 <div id="flexilist-input-{self._id}">
@@ -574,61 +621,38 @@ class Listbox(FormElement):
                 </div>
                 <div class="float-end">
                     <a 
-                        href="javascript:void(0)",
+                        href="javascript:void(0)"
                         class="mt-2"
-                        onclick="{app_id}.add_item(this);">add</a>
+                        onclick="{self.app_id}.add_item(this);">add</a>
                 </div>
                 <div class="clearfix"></div>
                 <ul 
                     name="{self._name}"
-                    id="flexilist-ul-{self._id}" 
+                    id="flexilist-ul-{self._id}"
                     class="flexilist-ul mt-2 ps-0">
         """
 
         for item in self.list_items:
-            html += f"""
-                    <li class="d-block flexilist-ul-item">
-                        &rarrhk; <a 
-                            href="javascript:void(0)"
-                            class="flexilist-ul-item-edit"
-                            onclick="{app_id}.update_item(this);">{html_encode(item)}</a>
-                        <a 
-                            href="javascript:void(0)" 
-                            class="flexilist-ul-item-action"
-                            is-deleted="0"
-                            onclick="{app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
-                    </li>
-            """
+            html += self.item_template(html_encode(item))
 
         html += f"""
                 </ul>
             </div>
             <script>
-                const {app_id} = {{
-                    template_item: function(content, classname) {{
-                        return `<li class="d-block flexilist-ul-item">
-                            &rarrhk; <a 
-                                href="javascript:void(0)"
-                                class="flexilist-ul-item-edit ${{classname || ''}}"
-                                onclick="{app_id}.update_item(this);">${{content || ''}}</a>
-                            <a 
-                                href="javascript:void(0)" 
-                                class="flexilist-ul-item-action"
-                                is-deleted="0"
-                                onclick="{app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
-                        </li>`;
+                const {self.app_id} = {{
+                    item_template: function(content, classname) {{
+                        return `{self.item_template("${this.html_encode(content)}", "${classname || ''}").strip()}`;
                     }},
                     add_item: function(button) {{
-                        const $button = $(button);
-                        const content = ($("#{self.input.id}").val() || "").trim();
+                        const content = ($("#flexilist-input-{self._id}").find("#{self.input.id}").val() || "").trim();
                         const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
 
                         if (content != "" && $is_connected.length == 0) {{
-                            $('ul#flexilist-ul-{self._id}').append(this.template_item(content));
-                            $("#{self.input.id}").val("");
+                            $("ul#flexilist-ul-{self._id}").append(this.item_template(content));
+                            $("#flexilist-input-{self._id}").find("#{self.input.id}").val("");
                         }} else if (content == "") {{
-                            $("#{self.input.id}").focus();
-                            $('ul#flexilist-ul-{self._id}').append(this.template_item('', 'is-connected'));
+                            $("#flexilist-input-{self._id}").find("#{self.input.id}").focus();
+                            $("ul#flexilist-ul-{self._id}").append(this.item_template("", "is-connected"));
                         }}
                     }},
                     update_item: function(item) {{
@@ -637,7 +661,7 @@ class Listbox(FormElement):
                         if (!$item.parent("li").hasClass("is-deleted")) {{
                             $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit").removeClass("is-connected"); 
                             $item.addClass("is-connected");
-                            $("#{self.input.id}").val($item.text()).focus();
+                            $("#flexilist-input-{self._id}").find("#{self.input.id}").val($item.text()).focus();
                         }}
                     }},
                     delete_item: function(button) {{
@@ -679,6 +703,14 @@ class Listbox(FormElement):
                                 $item.parent("li").remove();
                         }})
                     }},
+                    html_encode: function(unsafe) {{
+                        return unsafe
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                    }},
                 }};
             </script>
         """
@@ -687,6 +719,186 @@ class Listbox(FormElement):
 
 
 class Dictbox(FormElement):
+    def __init__(self, name: str, *, inputs: dict[str, FormElement], list_items: list[dict[str, str]] = [], attributes: dict[str, str] = {}):
+        for i, input in inputs.items():
+            if not isinstance(input, (Int, Float, Text, Textauto, Textarea, Selectbox)):
+                raise ValueError(f"Param 'input' must be Int, Float, Text, Textauto, Textarea or Selectbox. Got: {type(input)} (param: {i}).")
+
+        super().__init__(name, attributes=attributes)
+        self.app_id = f"app_{short_uuid_text(self._id)}"
+        self.inputs = inputs
+        self.list_items = list_items
+
+    def item_template(self, item: dict, classname: str = "") -> str:
+        content =""
+
+        for label, input in self.inputs.items():
+            content += f"""
+                <li class="mb-0 pb-0 d-block">
+                    <a
+                        name="{input.name}"
+                        href="javascript:void(0)"
+                        onclick="{self.app_id}.update_item(this);">
+                            <b>{label}</b>: 
+                            <span>{html_encode(str(item.get(input.name, "")))}</span>
+                    </a>
+                </li>
+            """
+
+        return f"""
+            <li class="d-block flexilist-ul-item">
+                &#123;
+                <div class="flexilist-ul-item-edit {classname}">
+                    <ul class="flexilist-ul mt-0 ps-3">
+                        {content}
+                    </ul>
+                </div>
+                &#125;, <a 
+                    href="javascript:void(0)"
+                    class="flexilist-ul-item-action"
+                    is-deleted="0"
+                    onclick="{self.app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
+            </li>
+        """
+    
+    def template(self) -> str:
+        content = ""
+
+        for label, input in self.inputs.items():
+            input["onblur"] = f"{self.app_id}.event_onblur(this);"
+            input["oninput"] = f"{self.app_id}.event_oninput(this);"
+            content += (FormGroup(input, label=label, colsize=9)).content()
+
+        html = f"""
+            <div id="flexilist-{self._id}" class="flexinputs flexlist">
+                <div id="flexilist-input-{self._id}">
+                    {content}
+                </div>
+                <div class="float-end">
+                    <a 
+                        href="javascript:void(0)"
+                        class="mt-2"
+                        onclick="{self.app_id}.add_item(this);">add</a>
+                </div>
+                <div class="clearfix"></div>
+                <ul 
+                    name="{self._name}"
+                    id="flexilist-ul-{self._id}"
+                    class="flexilist-ul tallest mt-2 ps-0">
+        """
+
+        for item in self.list_items:
+            html += self.item_template(item)
+
+        html += f"""
+                </ul>
+            </div>
+            <script>
+                const {self.app_id} = {{
+                    item_template: function(classname) {{
+                        return `{self.item_template({}, "${classname || ''}").strip()}`;
+                    }},
+                    add_item: function(button) {{
+                        const $button = $(button);
+                        const $is_connected = $("ul#flexilist-ul-{self._id} .flexilist-ul-item-edit.is-connected");
+
+                        if ($is_connected.length > 0) {{
+                        
+                        }} else {{
+                            const $item = $(this.item_template("is-connected"));
+
+                            $item.find(".flexilist-ul-item-edit a").each(function(i, e) {{
+                                const $a = $(e);
+                                const $input = $("#flexilist-input-{self._id}").find("[name=" + $a.attr("name") + "]");
+                                
+                                $a.find("span").text($input.val());
+                            }});
+                            $("ul#flexilist-ul-{self._id}").append($item);
+                            $("#flexilist-input-{self._id}").find("input, textarea, select").each(function(i, e) {{
+                                if (i == 0) {{
+                                    $(e).focus();
+                                }}
+                            }});
+                        }}
+                    }},
+                    update_item: function(item) {{
+                        const $item = $(item);
+                        const $item_dict = $item.parents("div.flexilist-ul-item-edit:first");
+
+                        if (!$item_dict.parent("li.flexilist-ul-item").hasClass("is-deleted")) {{
+                            $("ul#flexilist-ul-{self._id} .flexilist-ul-item-edit").removeClass("is-connected"); 
+                            $item_dict.addClass("is-connected");
+                            $item_dict.find("li a").each(function(i, e) {{
+                                const $a = $(e);
+                                const $input = $("#flexilist-input-{self._id}").find("[name=" + $a.attr("name") + "]");
+
+                                if ($item.attr("name") == $a.attr("name"))
+                                    $input.focus();
+
+                                $input.val($a.find("span").text());
+                            }});
+                        }}
+                    }},
+                    delete_item: function(button) {{
+                        const $button = $(button);
+                        
+                        if ($button.attr("is-deleted") == "0") {{
+                            $button.attr("is-deleted", "1");
+                            $button.html('&ndash; <i class="fa-solid fa-trash-can-arrow-up"></i>');
+                            $button.parent("li").addClass("is-deleted");
+                        }} else {{
+                            $button.attr("is-deleted", "0");
+                            $button.html('&ndash; <i class="fa-solid fa-trash"></i>');
+                            $button.parent("li").removeClass("is-deleted");
+                        }}
+                    }},
+                    event_oninput: function(input) {{
+                        const $input = $(input);
+
+                        $("ul#flexilist-ul-{self._id} .flexilist-ul-item-edit.is-connected a").each(function(i, e) {{
+                            const $a = $(e);
+
+                            if ($a.attr("name") == $input.attr("name"))
+                                $a.find("span").text($input.val());
+                        }});
+                    }},
+                    event_onblur: function(input) {{
+                        const $input = $(input);
+                        const $is_connected = $("ul#flexilist-ul-{self._id} .flexilist-ul-item-edit.is-connected");
+
+                        if ($is_connected.length > 0) {{
+                            var is_still_focused = false;
+
+                            setTimeout(function() {{
+                                $("#flexilist-input-{self._id}").find("input, textarea, select").each(function(i, e) {{
+                                    if (is_still_focused == false && $(e).is(":focus")) {{
+                                        is_still_focused = true;
+                                    }}
+                                }});
+
+                                if (is_still_focused == false) {{
+                                    $is_connected.removeClass("is-connected");
+
+                                    $("#flexilist-input-{self._id}").find("input, textarea, select").each(function(i, e) {{
+                                        $(e).val("");
+                                    }});
+                                }}
+                            }}, 100);
+                        }}
+                        
+                        this.clean_items();
+                    }},
+                    clean_items: function() {{
+                    
+                    }},
+                }};
+            </script>
+        """
+
+        return html
+
+
+class Mediabox(Listbox):
     pass
 
 
@@ -712,10 +924,10 @@ class FormGroup(XHtmlElement):
             return f"""
                 <div {flatten_attributes(self._attributes)}>
                     <div class="row">
-                        <label class="col-form-label col-{12 - self.colsize}">{self.label}</label>
+                        <label class="col-form-label col-{12 - self.colsize}">{html_encode(self.label)}</label>
                         <div class="col-{self.colsize}">
                             {self.input.content()}
-                            <small class="form-text text-muted">{self.help_text}</small>
+                            <small class="form-text text-muted">{html_encode(self.help_text)}</small>
                         </div>
                     </div>
                 </div>
@@ -723,9 +935,9 @@ class FormGroup(XHtmlElement):
         else:
             return f"""
                 <div {flatten_attributes(self._attributes)}>
-                    <label class="form-label">{self.label}</label>
+                    <label class="form-label">{html_encode(self.label)}</label>
                     {self.input.content()}
-                    <small class="form-text text-muted">{self.help_text}</small>
+                    <small class="form-text text-muted">{html_encode(self.help_text)}</small>
                 </div>
             """
 
@@ -736,9 +948,9 @@ class FloatingLabel(FormGroup):
             <div {flatten_attributes(self._attributes)}>
                 <div class="form-floating">
                     {self.input.content()}
-                    <label class="form-label" for="{self.input.id}">{self.label}</label>
+                    <label class="form-label" for="{self.input.id}">{html_encode(self.label)}</label>
                 </div>
-                <small class="form-text text-muted">{self.help_text}</small>
+                <small class="form-text text-muted">{html_encode(self.help_text)}</small>
             </div>
         """
 
@@ -763,15 +975,30 @@ class Form(XHtmlElement):
         SwitchCheckbox: FormElement = SwitchCheckbox
         Button: FormElement = Button
         Text: FormElement = Text
+        Textauto: FormElement = Textauto
         Textarea: FormElement = Textarea
         Selectbox: FormElement = Selectbox
         Listbox: FormElement = Listbox
         Dictbox: FormElement = Dictbox
+        Mediabox: FormElement = Mediabox
         FormGroup: XHtmlElement = FormGroup
         FloatingLabel: XHtmlElement = FloatingLabel
 
+    def template(self) -> str:
+        return super().template()
 
-class Table:
+    def add_form_group(self):
+        pass
+
+    def add_floating_label(self):
+        pass
+
+
+class Table(XHtmlElement):
+    pass
+
+
+class TableFilter(XHtmlElement):
     pass
 
 
