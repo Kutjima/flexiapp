@@ -332,32 +332,95 @@ class Float(Input):
         self._attributes["step"] = step
 
 
+class PreviewPanel(XHtmlElement):
+    @property
+    def id(self) -> str:
+        return self._id
+
+    def __init__(self, attributes: dict[str, str] = {}):
+        super().__init__(attributes)
+        self._attributes["class"] = "preview-panel"
+
+    def bind(self, input: FormElement):
+        self._attributes["id"] = self._id = f"preview-panel-{input.id}"
+        self.app_id = f"app_{short_uuid_text(self._id)}"
+
+
+class PreviewPDF(PreviewPanel):
+    pass
+
+
+class PreviewPhoto(PreviewPanel):
+    def template(self):
+        return f"""
+            <script>
+                const {self.app_id} = {{
+                    event_onchange: function(input) {{
+                        $("img#showcase-{self._id}").attr("src", $(input).val());
+                    }},
+                }};
+            </script>
+            <div class="mb-2">
+                <img 
+                    id="showcase-{self._id}" 
+                    src="#[NO FILE SELECTED]" 
+                    class="img-fluid border border-2 p-1" 
+                    style="min-width: 312px; min-height: 162px;" />
+            </div>        
+        """
+
+
+class PreviewVideo(PreviewPanel):
+    pass
+
+
+class PreviewYoutube(PreviewPanel):
+    pass
+
+
 class Text(Input):
     @property
     def datalist_id(self) -> str:
         return self._datalist_id
 
-    def __init__(self, name: str, value: int | float | str = "", *, datalist: list[str] | dict[str, str] = [], attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: int | float | str = "", *, datalist: list[str] | dict[str, str] = [], preview_panel: PreviewPanel | None = None, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="text", attributes=attributes)
         self._datalist = datalist
         self._attributes["list"] = self._datalist_id = f"datalist-{self._attributes['id']}"
 
+        if preview_panel:
+            preview_panel.bind(self)
+
+        self._preview_panel = preview_panel
+
     def template(self) -> str:
-        html_datalist = f'<datalist id="{self._datalist_id}">'
+        html = ""
+
+        if self._preview_panel:
+            html += self._preview_panel.content()
+            self._attributes["onchange"] = f"{self._preview_panel.app_id}.event_onchange(this);"
+
+        html += f'<datalist id="{self._datalist_id}">'
 
         if isinstance(self._datalist, dict):
             for value, label in self._datalist.items():
-                html_datalist += f"<option {flatten_attributes({'value': value})}>{label}</option>"
+                html += f"<option {flatten_attributes({'value': value})}>{label}</option>"
         elif isinstance(self._datalist, list):
             for value in self._datalist:
-                html_datalist += f"<option {flatten_attributes({'value': value})} />"
+                html += f"<option {flatten_attributes({'value': value})} />"
 
-        html_datalist += "</datalist>"
+        html += "</datalist>"
 
         return f"""
-            {html_datalist}
+            {html}
             <input {flatten_attributes(self._attributes)} />
         """
+
+    class e:
+        PDF: PreviewPanel = PreviewPDF
+        Photo: PreviewPanel = PreviewPhoto
+        Video: PreviewPanel = PreviewVideo
+        Youtube: PreviewPanel = PreviewYoutube
 
 
 class Textauto(Text):
@@ -740,7 +803,7 @@ class Dictbox(FormElement):
         self.list_items = list_items
 
     def item_template(self, item: dict, classname: str = "") -> str:
-        content =""
+        content = ""
 
         for label, input in self.inputs.items():
             content += f"""
@@ -770,7 +833,7 @@ class Dictbox(FormElement):
                     onclick="{self.app_id}.delete_item(this);">&ndash; <i class="fa-solid fa-trash"></i></a>
             </li>
         """
-    
+
     def template(self) -> str:
         content = ""
 
