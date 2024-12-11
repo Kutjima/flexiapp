@@ -621,8 +621,9 @@ class Listbox(FormElement):
                 </div>
                 <div class="float-end">
                     <a 
-                        href="javascript:void(0)"
+                        id="flexilist-{self._id}-button"
                         class="mt-2"
+                        href="javascript:void(0)"
                         onclick="{self.app_id}.add_item(this);">add</a>
                 </div>
                 <div class="clearfix"></div>
@@ -633,36 +634,49 @@ class Listbox(FormElement):
         """
 
         for item in self.list_items:
-            html += self.item_template(html_encode(item))
+            html += self.item_template(html_encode(str(item)))
 
         html += f"""
                 </ul>
             </div>
             <script>
                 const {self.app_id} = {{
-                    item_template: function(content, classname) {{
-                        return `{self.item_template("${this.html_encode(content)}", "${classname || ''}").strip()}`;
-                    }},
                     add_item: function(button) {{
-                        const content = ($("#flexilist-input-{self._id}").find("#{self.input.id}").val() || "").trim();
-                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+                        const $button = $(button);
+                        const $input = $("#flexilist-input-{self._id}").find("#{self.input.id}");
+                        const $listbox = $("ul#flexilist-ul-{self._id}");
+                        const $connection = $listbox.find("a.flexilist-ul-item-edit.is-connected");
 
-                        if (content != "" && $is_connected.length == 0) {{
-                            $("ul#flexilist-ul-{self._id}").append(this.item_template(content));
-                            $("#flexilist-input-{self._id}").find("#{self.input.id}").val("");
-                        }} else if (content == "") {{
-                            $("#flexilist-input-{self._id}").find("#{self.input.id}").focus();
-                            $("ul#flexilist-ul-{self._id}").append(this.item_template("", "is-connected"));
+                        if ($connection.length > 0) {{
+                            this.clean_items(() => {{
+                                $connection.removeClass("is-connected");
+                                $input.val("").focus();
+                                $button.text("add");
+                            }});
+                        }} else {{
+                            const $item = $(`{self.item_template("", "is-connected").strip()}`);
+
+                            $item.find(".flexilist-ul-item-edit").text($input.val());
+                            $listbox.append($item);
+                            $input.focus();
+                            $button.text("disconnect");
                         }}
                     }},
                     update_item: function(item) {{
-                        const $item = $(item);
+                        this.clean_items(() => {{
+                            const $item = $(item);
 
-                        if (!$item.parent("li").hasClass("is-deleted")) {{
-                            $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit").removeClass("is-connected"); 
-                            $item.addClass("is-connected");
-                            $("#flexilist-input-{self._id}").find("#{self.input.id}").val($item.text()).focus();
-                        }}
+                            if (!$item.parent("li.flexilist-ul-item").hasClass("is-deleted")) {{
+                                const $input = $("#flexilist-input-{self._id}").find("#{self.input.id}");
+                                const $items = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit");
+                                const $button = $("a#flexilist-{self._id}-button");
+                            
+                                $items.removeClass("is-connected"); 
+                                $item.addClass("is-connected");
+                                $input.val($item.text()).focus();
+                                $button.text("disconnect");
+                            }}
+                        }});
                     }},
                     delete_item: function(button) {{
                         const $button = $(button);
@@ -677,39 +691,34 @@ class Listbox(FormElement):
                             $button.parent("li").removeClass("is-deleted");
                         }}
                     }},
-                    event_oninput: function(input) {{
-                        const $input = $(input);
-                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+                    clean_items: function(callback) {{
+                        var callback = callback || function() {{}};
 
-                        if ($is_connected.length > 0)
-                            $is_connected.text($input.val());
-                    }},
-                    event_onblur: function(input) {{
-                        const $input = $(input);
-                        const $is_connected = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
-
-                        if ($is_connected.length > 0) {{
-                            $is_connected.removeClass("is-connected");
-                            $input.val("");
-                        }}
-                        
-                        this.clean_items();
-                    }},
-                    clean_items: function() {{
                         $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit").each(function(i, e) {{
                             const $item = $(e);
 
                             if ($item.is(":empty"))
-                                $item.parent("li").remove();
-                        }})
+                                $item.parent("li.flexilist-ul-item").remove();
+                        }});
+
+                        return callback();
                     }},
-                    html_encode: function(unsafe) {{
-                        return unsafe
-                            .replace(/&/g, "&amp;")
-                            .replace(/</g, "&lt;")
-                            .replace(/>/g, "&gt;")
-                            .replace(/"/g, "&quot;")
-                            .replace(/'/g, "&#039;");
+                    event_oninput: function(input) {{
+                        const $input = $(input);
+                        const $connection = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+
+                        if ($connection.length == 0) {{
+                            this.add_item($("a#flexilist-{self._id}-button").get(0));
+                        }} else {{
+                            $connection.text($input.val());
+                        }}
+                    }},
+                    event_onblur: function(input) {{
+                        const $connection = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit.is-connected");
+
+                        if ($connection.length == 0) {{
+                            this.clean_items();
+                        }}
                     }},
                 }};
             </script>
@@ -776,8 +785,9 @@ class Dictbox(FormElement):
                 </div>
                 <div class="float-end">
                     <a 
-                        href="javascript:void(0)"
+                        id="flexilist-{self._id}-button"
                         class="mt-2"
+                        href="javascript:void(0)"
                         onclick="{self.app_id}.add_item(this);">add</a>
                 </div>
                 <div class="clearfix"></div>
