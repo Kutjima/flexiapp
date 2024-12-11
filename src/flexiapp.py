@@ -332,75 +332,18 @@ class Float(Input):
         self._attributes["step"] = step
 
 
-class PreviewPanel(XHtmlElement):
-    @property
-    def id(self) -> str:
-        return self._id
-
-    def __init__(self, attributes: dict[str, str] = {}):
-        super().__init__(attributes)
-        self._attributes["class"] = "preview-panel"
-
-    def bind(self, input: FormElement):
-        self._attributes["id"] = self._id = f"preview-panel-{input.id}"
-        self.app_id = f"app_{short_uuid_text(self._id)}"
-
-
-class PreviewPDF(PreviewPanel):
-    pass
-
-
-class PreviewPhoto(PreviewPanel):
-    def template(self):
-        return f"""
-            <script>
-                const {self.app_id} = {{
-                    event_onchange: function(input) {{
-                        $("img#showcase-{self._id}").attr("src", $(input).val());
-                    }},
-                }};
-            </script>
-            <div class="mb-2">
-                <img 
-                    id="showcase-{self._id}" 
-                    src="#[NO FILE SELECTED]" 
-                    class="img-fluid border border-2 p-1" 
-                    style="min-width: 312px; min-height: 162px;" />
-            </div>        
-        """
-
-
-class PreviewVideo(PreviewPanel):
-    pass
-
-
-class PreviewYoutube(PreviewPanel):
-    pass
-
-
 class Text(Input):
     @property
     def datalist_id(self) -> str:
         return self._datalist_id
 
-    def __init__(self, name: str, value: int | float | str = "", *, datalist: list[str] | dict[str, str] = [], preview_panel: PreviewPanel | None = None, attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: int | float | str = "", *, datalist: list[str] | dict[str, str] = [], attributes: dict[str, str] = {}):
         super().__init__(name, value, type="text", attributes=attributes)
         self._datalist = datalist
         self._attributes["list"] = self._datalist_id = f"datalist-{self._attributes['id']}"
 
-        if preview_panel:
-            preview_panel.bind(self)
-
-        self._preview_panel = preview_panel
-
     def template(self) -> str:
-        html = ""
-
-        if self._preview_panel:
-            html += self._preview_panel.content()
-            self._attributes["onchange"] = f"{self._preview_panel.app_id}.event_onchange(this);"
-
-        html += f'<datalist id="{self._datalist_id}">'
+        html = f'<datalist id="{self._datalist_id}">'
 
         if isinstance(self._datalist, dict):
             for value, label in self._datalist.items():
@@ -415,12 +358,6 @@ class Text(Input):
             {html}
             <input {flatten_attributes(self._attributes)} />
         """
-
-    class e:
-        PDF: PreviewPanel = PreviewPDF
-        Photo: PreviewPanel = PreviewPhoto
-        Video: PreviewPanel = PreviewVideo
-        Youtube: PreviewPanel = PreviewYoutube
 
 
 class Textauto(Text):
@@ -649,9 +586,51 @@ class Selectbox(FormElement):
         return html
 
 
+class Frame(XHtmlElement):
+    @property
+    def id(self) -> str:
+        return self._id
+
+    def __init__(self, input: FormElement, *, attributes: dict[str, str] = {}):
+        super().__init__(attributes)
+        self._input = input
+        self._app_id = f"app_{short_uuid_text(id := f'frame-{self._input._id}')}"
+        self._attributes["id"] = self._id = id
+
+
+class PhotoFrame(Frame):
+    def template(self):
+        self._input["onchange"] = f"{self._app_id}.event_onchange(this);"
+
+        return f"""
+            <script>
+                const {self._app_id} = {{
+                    event_onchange: function(input) {{
+                        $("img#showcase-{self._id}").attr("src", $(input).val());
+                    }},
+                }};
+            </script>
+            <div class="mb-2">
+                <img 
+                    id="showcase-{self._id}" 
+                    src="{self._input["value"]}" 
+                    class="img-fluid border border-2 p-1" 
+                    style="min-width: 312px; min-height: 162px;" />
+            </div>
+            {self._input.content()}    
+        """
+
+
 class Listbox(FormElement):
+    @property
+    def input_id(self) -> str:
+        return ""
+    
     def __init__(self, name: str, *, input: FormElement, list_items: list[str] = [], attributes: dict[str, str] = {}):
-        if not isinstance(input, (Int, Float, Text, Textauto, Textarea, Selectbox)):
+        if isinstance(input, Frame):
+            if not isinstance(input._input, (Int, Float, Text, Textauto, Textarea, Selectbox)):
+                raise ValueError(f"Param 'input' must be Int, Float, Text, Textauto, Textarea or Selectbox. Got: {type(input._input)}.")
+        elif not isinstance(input, (Int, Float, Text, Textauto, Textarea, Selectbox)):
             raise ValueError(f"Param 'input' must be Int, Float, Text, Textauto, Textarea or Selectbox. Got: {type(input)}.")
 
         super().__init__(name, attributes=attributes)
@@ -675,8 +654,15 @@ class Listbox(FormElement):
         """
 
     def template(self) -> str:
-        self.input["onblur"] = f"{self.app_id}.event_onblur(this);"
-        self.input["oninput"] = f"{self.app_id}.event_oninput(this);"
+        if isinstance(self.input, (Frame,)):
+            input_id = self.input._input.id
+            self.input._input["onblur"] = f"{self.app_id}.event_onblur(this);"
+            self.input._input["oninput"] = f"{self.app_id}.event_oninput(this);"
+        else:
+            input_id = self.input.id
+            self.input["onblur"] = f"{self.app_id}.event_onblur(this);"
+            self.input["oninput"] = f"{self.app_id}.event_oninput(this);"
+
         html = f"""
             <div id="flexilist-{self._id}" class="flexinputs flexlist">
                 <div id="flexilist-input-{self._id}">
@@ -706,7 +692,7 @@ class Listbox(FormElement):
                 const {self.app_id} = {{
                     add_item: function(button) {{
                         const $button = $(button);
-                        const $input = $("#flexilist-input-{self._id}").find("#{self.input.id}");
+                        const $input = $("#flexilist-input-{self._id}").find("#{input_id}");
                         const $listbox = $("ul#flexilist-ul-{self._id}");
                         const $connection = $listbox.find(".flexilist-ul-item-edit.is-connected");
 
@@ -731,13 +717,13 @@ class Listbox(FormElement):
                             const $item = $(item);
 
                             if (!$item.parent("li.flexilist-ul-item").hasClass("is-deleted")) {{
-                                const $input = $("#flexilist-input-{self._id}").find("#{self.input.id}");
+                                const $input = $("#flexilist-input-{self._id}").find("#{input_id}");
                                 const $items = $("ul#flexilist-ul-{self._id} a.flexilist-ul-item-edit");
                                 const $button = $("a#flexilist-{self._id}-button");
                             
                                 $items.removeClass("is-connected"); 
                                 $item.addClass("is-connected");
-                                $input.val($item.text()).focus();
+                                $input.val($item.text()).trigger("change").focus();
                                 $button.text("disconnect");
                             }}
                         }});
