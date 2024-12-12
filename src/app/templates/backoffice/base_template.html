@@ -8,8 +8,8 @@
     <meta name="viewport" content="maximum-scale=1" />
     <link rel="icon" type="image/x-icon" href="{{ flexihtml.logo_image }}" />
     <link rel="stylesheet" href="/flexiapp/public/css-js/fontawesome-free-6.1.2-web/css/all.min.css" />
-    <link rel="stylesheet" href="/flexiapp/public/css-js/bootswatch-5.3/bootstrap.min.css" />
-    <link rel="stylesheet" href="/flexiapp/public/css-js/backoffice.css?t=1.8sssssas" />
+    <link rel="stylesheet" href="/flexiapp/public/css-js/bootswatch-5.3/bootstrap.min.css?t={{ timestamp }}" />
+    <link rel="stylesheet" href="/flexiapp/public/css-js/backoffice.css?t={{ timestamp }}" />
     <script src="/flexiapp/public/css-js/fontawesome-free-6.1.2-web/all.js" data-auto-a11y="true"></script>
     {% block stylesheet %}{% endblock %}
 </head>
@@ -62,7 +62,7 @@
     <script src="/flexiapp/public/css-js/jquery-3.7.0.min.js"></script>
     <script src="/flexiapp/public/css-js/popper-2.11.6.min.js"></script>
     <script src="/flexiapp/public/css-js/bootstrap-5.3.1/bootstrap.min.js"></script>
-    <script src="/flexiapp/public/css-js/backoffice.js"></script>
+    <script src="/flexiapp/public/css-js/backoffice.js?t={{ timestamp }}"></script>
     {% block javascript %}{% endblock %}
 </body>
 

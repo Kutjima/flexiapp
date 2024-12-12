@@ -1,3 +1,12 @@
+[...document.querySelectorAll('[data-bs-toggle="tooltip"]')].forEach(e => new bootstrap.Tooltip(e));
+[...document.querySelectorAll('[data-bs-toggle="popover"]')].forEach(e => new bootstrap.Popover(e, {
+    html: true,
+    sanitize: false,
+    content: function() {
+        return $(`template#template-popover-${e.id}`).html() || "<i>Template not found!</i>";
+    },
+}));
+
 const $offcanvas = $('#offcanvas');
 
 const flexihtml = {

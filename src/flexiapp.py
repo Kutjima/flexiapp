@@ -322,12 +322,17 @@ class Text(Input):
         super().__init__(name, value, type="text", attributes=attributes)
 
 
+class Searchtext(Input):
+    def __init__(self, name, value="", *, type="text", attributes={}):
+        super().__init__(name, value, type=type, attributes=attributes)
+
+
 class Datalist(XHtmlElement):
     def __init__(self, element: Input, *, data: str | list[str] | dict[str, str] = [], attributes: dict[str, str] = {}):
         super().__init__(attributes=attributes)
         self.data = data
         self.element = element
-        self.element["list"] = self.id = f"dt-{self.element["id"]}"
+        self.element["list"] = self.id = f"dt-{self.element['id']}"
 
     def template(self) -> str:
         html = f'<datalist id="{self.id}">'
@@ -453,10 +458,9 @@ class Textarea(FormElement):
 
 
 class Selectbox(FormElement):
-    def __init__(self, name: str, value: int | float | str = "", *, options: dict[str, str], mapped_options: dict[str, str] = {}, attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: int | float | str = "", *, options: dict[str, str], attributes: dict[str, str] = {}):
         super().__init__(name, value, attributes=attributes)
         self.options = options
-        self.mapped_options = mapped_options
         self.attributes["class"] = "form-select"
 
     def template(self) -> str:
@@ -473,10 +477,7 @@ class Selectbox(FormElement):
         """
 
         for item_value, item_label in self.options.items():
-            tmp_attributes = {
-                "value": item_value,
-                "data-optionvalue": self.mapped_options.get(item_value, ""),
-            }
+            tmp_attributes = {"value": item_value}
 
             if item_value in values:
                 tmp_attributes["selected"] = 1
@@ -490,6 +491,64 @@ class Selectbox(FormElement):
         """
 
         return html
+
+
+class Searchbox(Selectbox):
+    def __init__(self, name: str, value: int | float | str = "", *, endpoint: str, options: dict[str, str] = {}, attributes={}):
+        super().__init__(name, value, options=options, attributes=attributes)
+        self.endpoint = endpoint
+
+    def template(self):
+        popover_button = Button(f"popover-button-{self.name}", label='<i class="fa-solid fa-ellipsis"></i>', type="button")
+        popover_button["class"] = "btn btn-secondary"
+        popover_button["data-bs-toggle"] = "popover"
+        popover_button["data-bs-placement"] = "right"
+        searchbox = Text(f"searchbox-{self.name}")
+        pull_button = Button(f"pull-button-{self.name}", label='<i class="fa-solid fa-magnifying-glass"></i>', type="button")
+        pull_button["onclick"] = f"""
+            (function(button) {{
+                const $button = $(button);
+                const $input = $("select#{self.id}");
+                const $searchbox = $("input#{searchbox.id}");
+                const $popover_button = $("button#{popover_button.id}");
+                
+                $button.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+
+                return $.ajax({{
+                    type: "POST",
+                    url: "{self.endpoint}",
+                    data: JSON.stringify({{"query": $searchbox.val()}}),
+                    dataType: "json",
+                    contentType: "application/json",
+                }}).done(function(response) {{
+                    $button.prop("disabled", false).html('<i class="fa-solid fa-magnifying-glass"></i>');
+                    $popover_button.click();
+
+                    if (response.status) {{
+                        $input.empty();
+                    
+                        for (var i in response.items) {{
+                            $input.append($("<option>", {{"value": i, "text": response.items[i]}}));
+                        }}
+                    }} else {{
+                        alert(response.message);
+                    }}
+                }});
+            }})(this);
+        """
+
+        return f"""
+            <template id="template-popover-{popover_button.id}">
+                <div class="input-group">
+                    {searchbox.content()}
+                    {pull_button.content()}
+                </div>
+            </template>
+            <div class="input-group">
+                {popover_button.content()}
+                {super().template()}
+            </div>
+        """
 
 
 class Frame(XHtmlElement):
@@ -560,7 +619,8 @@ class Listbox(FormElement):
                 &rarrhk; <a 
                     href="javascript:void(0)"
                     class="flexilist-ul-item-edit {classname}"
-                    onclick="{html_encode(f"""
+                    onclick="{
+            html_encode(f'''
                         (function(item) {{
                             $("ul#flexilist-ul-{self.id} .flexilist-ul-item-edit").each(function(i, e) {{
                                 const $item = $(e);
@@ -582,12 +642,14 @@ class Listbox(FormElement):
                                 $button.text("disconnect");
                             }}
                         }})(this);
-                    """)}">{item}</a>
+                    ''')
+        }">{item}</a>
                 <a 
                     href="javascript:void(0)"
                     class="flexilist-ul-item-action"
                     is-deleted="0"
-                    onclick="{html_encode("""
+                    onclick="{
+            html_encode('''
                         (function(button) {{
                             const $button = $(button);
                             
@@ -601,7 +663,8 @@ class Listbox(FormElement):
                                 $button.parent("li").removeClass("is-deleted");
                             }}
                         }})(this);
-                    """)}">&ndash; <i class="fa-solid fa-trash"></i></a>
+                    ''')
+        }">&ndash; <i class="fa-solid fa-trash"></i></a>
             </li>
         """
 
@@ -642,7 +705,8 @@ class Listbox(FormElement):
                         id="flexilist-{self.id}-button"
                         class="mt-2"
                         href="javascript:void(0)"
-                        onclick="{html_encode(f"""
+                        onclick="{
+            html_encode(f'''
                             (function(button) {{
                                 const $button = $(button);
                                 const $input = $("#flexilist-input-{self.id}").find("#{tmp_element.id}");
@@ -670,7 +734,8 @@ class Listbox(FormElement):
                                     $button.text("disconnect");
                                 }}
                             }})(this);
-                        """)}">add</a>
+                        ''')
+        }">add</a>
                 </div>
                 <div class="clearfix"></div>
                 <ul 
@@ -713,7 +778,8 @@ class Dictbox(FormElement):
                     <a
                         name="{tmp_element.name}"
                         href="javascript:void(0)"
-                        onclick="{html_encode(f"""
+                        onclick="{
+                html_encode(f'''
                             (function(item) {{
                                 $("ul#flexilist-ul-{self.id} .flexilist-ul-item-edit").each(function(i, e) {{
                                     const $item = $(e);
@@ -748,7 +814,8 @@ class Dictbox(FormElement):
                                     $button.text("disconnect");
                                 }}
                             }})(this);
-                        """)}">
+                        ''')
+            }">
                             <b>{label}</b>: 
                             <span>{html_encode(str(item.get(tmp_element.name, "")))}</span>
                     </a>
@@ -767,7 +834,8 @@ class Dictbox(FormElement):
                     href="javascript:void(0)"
                     class="flexilist-ul-item-action"
                     is-deleted="0"
-                    onclick="{html_encode("""
+                    onclick="{
+            html_encode('''
                         (function(button) {{
                             const $button = $(button);
                             
@@ -781,7 +849,8 @@ class Dictbox(FormElement):
                                 $button.parent("li").removeClass("is-deleted");
                             }}
                         }})(this);
-                    """)}">&ndash; <i class="fa-solid fa-trash"></i></a>
+                    ''')
+        }">&ndash; <i class="fa-solid fa-trash"></i></a>
             </li>
         """
 
@@ -836,7 +905,8 @@ class Dictbox(FormElement):
                         id="flexilist-{self.id}-button"
                         class="mt-2"
                         href="javascript:void(0)"
-                        onclick="{html_encode(f"""
+                        onclick="{
+            html_encode(f'''
                             (function(button) {{
                                 const $button = $(button);
                                 const $listbox = $("ul#flexilist-ul-{self.id}");
@@ -875,7 +945,8 @@ class Dictbox(FormElement):
                                     $button.text("disconnect");
                                 }}
                             }})(this);
-                        """)}">add</a>
+                        ''')
+        }">add</a>
                 </div>
                 <div class="clearfix"></div>
                 <ul 
@@ -967,6 +1038,7 @@ class Form(XHtmlElement):
         Selectbox: FormElement = Selectbox
         Listbox: FormElement = Listbox
         Dictbox: FormElement = Dictbox
+        Searchbox: FormElement = Searchbox
         FormGroup: XHtmlElement = FormGroup
         FloatingLabel: XHtmlElement = FloatingLabel
 

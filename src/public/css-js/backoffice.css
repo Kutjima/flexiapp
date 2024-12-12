@@ -158,6 +158,11 @@ textarea.form-control {
     min-height: 140px !important;
 }
 
+.popover {
+    width: 400px;
+    max-width: 400px;
+}
+
 .flexilist-ul {
     overflow-y: auto;
     max-height: 200px;
