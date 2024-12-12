@@ -318,37 +318,61 @@ class Float(Input):
 
 
 class Text(Input):
-    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: int | float | str = "", *, data: str | list[str] = None, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="text", attributes=attributes)
 
-
-class Searchtext(Input):
-    def __init__(self, name, value="", *, type="text", attributes={}):
-        super().__init__(name, value, type=type, attributes=attributes)
-
-
-class Datalist(XHtmlElement):
-    def __init__(self, element: Input, *, data: str | list[str] | dict[str, str] = [], attributes: dict[str, str] = {}):
-        super().__init__(attributes=attributes)
+        if data and not isinstance(data, (str, list)):
+            raise ValueError("Invalid data list")
+    
         self.data = data
-        self.element = element
-        self.element["list"] = self.id = f"dt-{self.element['id']}"
+        self.attributes["list"] = self.datalist_id = f"datalist-{self.id}"
 
     def template(self) -> str:
-        html = f'<datalist id="{self.id}">'
+        if self.data is None:
+            return super().template()
 
-        if isinstance(self.data, dict):
-            for value, label in self.data.items():
-                html += f"<option {flatten_attributes({'value': value})}>{html_encode(label)}</option>"
-        elif isinstance(self.data, list):
+        options = ""
+
+        if isinstance(self.data, list):
             for value in self.data:
-                html += f"<option {flatten_attributes({'value': value})} />"
+                options += f"<option {flatten_attributes({'value': value})} />"
         else:
-            pass
+            self.attributes["oninput"] = f"""
+                (function(input) {{
+                    const $input = $(input);
+                    const $datalist = $("datalist#{self.datalist_id}");
+                    const search_value = $input.val().trim();
 
-        html += "</datalist>"
+                    if (search_value.length >= 3) {{
+                        $datalist.empty();
 
-        return html + self.element.content()
+                        return $.ajax({{
+                            type: "POST",
+                            url: "{self.data}",
+                            data: JSON.stringify({{"query": search_value}}),
+                            dataType: "json",
+                            contentType: "application/json",
+                        }}).done(function(response) {{
+                            if (response.status) {{
+                                $datalist.empty();
+                            
+                                for (var i in response.items) {{
+                                    $datalist.append($('<option>', {{"value": response.items[i]}}));
+                                }}
+                            }} else {{
+                                alert(response.message);
+                            }}
+                        }});
+                    }}
+                }})(this);
+            """
+
+        return f"""
+            <datalist id="{self.datalist_id}">
+                {options}
+            </datalist>
+            {super().template()}
+        """
 
 
 class File(Input):
@@ -502,7 +526,7 @@ class Searchbox(Selectbox):
         popover_button = Button(f"popover-button-{self.name}", label='<i class="fa-solid fa-ellipsis"></i>', type="button")
         popover_button["class"] = "btn btn-secondary"
         popover_button["data-bs-toggle"] = "popover"
-        popover_button["data-bs-placement"] = "right"
+        popover_button["data-bs-placement"] = "top"
         searchbox = Text(f"searchbox-{self.name}")
         pull_button = Button(f"pull-button-{self.name}", label='<i class="fa-solid fa-magnifying-glass"></i>', type="button")
         pull_button["onclick"] = f"""
@@ -604,8 +628,8 @@ class Listbox(FormElement):
     def __init__(self, name: str, *, element: FormElement, list_items: list[str] = [], attributes: dict[str, str] = {}):
         tmp_element = element.element if isinstance(element, Frame) else element
 
-        if not isinstance(tmp_element, (Int, Float, Text, Datalist, Textarea, Selectbox)):
-            raise ValueError(f"Param 'element' must be Int, Float, Text, Datalist, Textarea or Selectbox. Got: {type(tmp_element)}.")
+        if not isinstance(tmp_element, (Int, Float, Text, Textarea, Selectbox, Searchbox)):
+            raise ValueError(f"Param 'element' must be Int, Float, Text, Textarea, Selectbox or Searchbox. Got: {type(tmp_element)}.")
 
         super().__init__(name, attributes=attributes)
         self.element = element
@@ -760,8 +784,8 @@ class Dictbox(FormElement):
         for i, element in elements.items():
             tmp_element = element.element if isinstance(element, Frame) else element
 
-            if not isinstance(tmp_element, (Int, Float, Text, Datalist, Textarea, Selectbox)):
-                raise ValueError(f"Param 'elements' must be a dict of Int, Float, Text, Datalist, Textarea or Selectbox. Got: {type(tmp_element)} (param: {i}).")
+            if not isinstance(tmp_element, (Int, Float, Text, Textarea, Selectbox, Searchbox)):
+                raise ValueError(f"Param 'elements' must be a dict of Int, Float, Text, Textarea, Selectbox or Searchbox. Got: {type(tmp_element)} (param: {i}).")
 
         super().__init__(name, attributes=attributes)
         self.elements = elements
@@ -1033,7 +1057,6 @@ class Form(XHtmlElement):
         SwitchCheckbox: FormElement = SwitchCheckbox
         Button: FormElement = Button
         Text: FormElement = Text
-        Datalist: FormElement = Datalist
         Textarea: FormElement = Textarea
         Selectbox: FormElement = Selectbox
         Listbox: FormElement = Listbox

@@ -2,7 +2,7 @@
 [...document.querySelectorAll('[data-bs-toggle="popover"]')].forEach(e => new bootstrap.Popover(e, {
     html: true,
     sanitize: false,
-    content: function() {
+    content: function(e) {
         return $(`template#template-popover-${e.id}`).html() || "<i>Template not found!</i>";
     },
 }));
