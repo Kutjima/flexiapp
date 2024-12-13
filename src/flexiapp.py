@@ -285,6 +285,10 @@ class Date(Input):
         super().__init__(name, value, type="date", attributes=attributes)
 
 
+class DateRange:
+    pass
+
+
 class Datetime(Input):
     def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="datetime", attributes=attributes)
@@ -293,6 +297,10 @@ class Datetime(Input):
 class Time(Input):
     def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="time", attributes=attributes)
+
+
+class TimeRange:
+    pass
 
 
 class Hidden(Input):
@@ -609,12 +617,21 @@ class PhotoFrame(Frame):
                 $("img#{self.id}").attr("src", $(input).val());
             }})(this);
         """
+        popover_button = Button(f"popover-button-{self.element.name}", label='<i class="fa-solid fa-ellipsis"></i>', type="button")
+        popover_button["class"] = "btn btn-secondary"
+        popover_button["data-bs-toggle"] = "popover"
+        popover_button["data-bs-placement"] = "top"
 
         return f"""
-            <div class="mb-2">
-                <img {flatten_attributes(self.attributes)} />
+            <template id="template-popover-{popover_button.id}">
+                <div class="mb-2">
+                    <img {flatten_attributes(self.attributes)} />
+                </div>
+            </template>
+            <div class="input-group">
+                {popover_button.content()}
+                {self.element.content()}
             </div>
-            {self.element.content()}    
         """
 
 
@@ -629,14 +646,23 @@ class VideoFrame(Frame):
                 $("video#{self.id}").attr("src", $(input).val());
             }})(this);
         """
+        popover_button = Button(f"popover-button-{self.element.name}", label='<i class="fa-solid fa-ellipsis"></i>', type="button")
+        popover_button["class"] = "btn btn-secondary"
+        popover_button["data-bs-toggle"] = "popover"
+        popover_button["data-bs-placement"] = "top"
 
         return f"""
-            <div class="mb-2">
-                <video {flatten_attributes(self.attributes)}>
-                    Your browser does not support the video tag.
-                </video>
+            <template id="template-popover-{popover_button.id}">
+                <div class="mb-2">
+                    <video {flatten_attributes(self.attributes)}>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+            </template>
+            <div class="input-group">
+                {popover_button.content()}
+                {self.element.content()}
             </div>
-            {self.element.content()}    
         """
 
 
