@@ -1,3 +1,13 @@
+.w-0 {
+    width: 0 !important;
+    min-width: 0!important;
+}
+
+.w-5 {
+    width: 5% !important;
+    min-width: 5% !important;
+}
+
 .w-10 {
     width: 10% !important;
     min-width: 10% !important;

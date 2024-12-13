@@ -255,7 +255,7 @@ class HtmlElement(XHtmlElement):
 
     def template(self) -> str:
         if isinstance(html := self.html, XHtmlElement):
-            html = self.html.template()
+            html = self.html.content()
 
         return f"<{(tag := self.tag.lower())} {flatten_attributes(self.attributes)}>{html}</{tag}>"
 
@@ -323,7 +323,7 @@ class Text(Input):
 
         if data and not isinstance(data, (str, list)):
             raise ValueError("Invalid data list")
-    
+
         self.data = data
         self.attributes["list"] = self.datalist_id = f"datalist-{self.id}"
 
@@ -523,12 +523,11 @@ class Searchbox(Selectbox):
         self.endpoint = endpoint
 
     def template(self):
-        popover_button = Button(f"popover-button-{self.name}", label='<i class="fa-solid fa-ellipsis"></i>', type="button")
-        popover_button["class"] = "btn btn-secondary"
-        popover_button["data-bs-toggle"] = "popover"
-        popover_button["data-bs-placement"] = "top"
         searchbox = Text(f"searchbox-{self.name}")
         pull_button = Button(f"pull-button-{self.name}", label='<i class="fa-solid fa-magnifying-glass"></i>', type="button")
+        popover_button = Button(f"popover-button-{self.name}", label='<i class="fa-solid fa-angle-right"></i>', type="button")
+        searchbox["class"] = "form-control w-60 d-none"
+        pull_button["class"] = "btn btn-secondary d-none"
         pull_button["onclick"] = f"""
             (function(button) {{
                 const $button = $(button);
@@ -560,16 +559,33 @@ class Searchbox(Selectbox):
                 }});
             }})(this);
         """
+        popover_button["class"] = "btn btn-secondary"
+        popover_button["is-opened"] = "0"
+        popover_button["onclick"] = f"""
+            (function(button) {{
+                const $button = $(button);
+                const $searchbox = $("input#{searchbox.id}");
+                const $pull_button = $("button#{pull_button.id}");
+
+                if ($button.attr("is-opened") == "1") {{
+                    $button.attr("is-opened", "0");
+                    $button.html('<i class="fa-solid fa-angle-right"></i>');
+                    $searchbox.addClass("d-none");
+                    $pull_button.addClass("d-none");
+                }} else {{
+                    $button.attr("is-opened", "1");
+                    $button.html('<i class="fa-solid fa-angle-left"></i>');
+                    $searchbox.removeClass("d-none").focus();
+                    $pull_button.removeClass("d-none");
+                }}
+            }})(this);
+        """
 
         return f"""
-            <template id="template-popover-{popover_button.id}">
-                <div class="input-group">
-                    {searchbox.content()}
-                    {pull_button.content()}
-                </div>
-            </template>
             <div class="input-group">
                 {popover_button.content()}
+                {searchbox.content()}
+                {pull_button.content()}
                 {super().template()}
             </div>
         """
@@ -749,13 +765,12 @@ class Listbox(FormElement):
                                     $input.val("").focus();
                                     $button.text("add");
                                 }} else {{
-                                    const $item = $(`{self.item_template("", "is-connected").strip()}`);
+                                    const $item = $(`{self.item_template("").strip()}`);
 
                                     $item.find(".flexilist-ul-item-edit").text($input.val());
                                     $listbox.append($item);
                                     $listbox.scrollTop($listbox.prop("scrollHeight"));
-                                    $input.focus();
-                                    $button.text("disconnect");
+                                    $input.val("").focus();
                                 }}
                             }})(this);
                         ''')
