@@ -599,6 +599,24 @@ class Searchbox(Selectbox):
         """
 
 
+class Endpoint:
+    pass
+
+
+class Media:
+    pass
+
+
+class Selectbox2(Selectbox):
+    def __init__(self, name, value="", *, options, autofill: Endpoint = None, media: Media = None, attributes: dict[str, str] = {}):
+        super().__init__(name, value, options=options, attributes=attributes)
+
+
+class Upload(File):
+    def __init__(self, name, value="", *, media: Media = None, attributes: dict[str, str] = {}):
+        super().__init__(name, value, attributes=attributes)
+
+
 class Frame(XHtmlElement):
     def __init__(self, element: FormElement, *, width: str = "312px", height: str = "162px", attributes: dict[str, str] = {}):
         super().__init__(attributes)
