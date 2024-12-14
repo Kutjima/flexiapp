@@ -281,12 +281,30 @@ class Input(FormElement):
 
 
 class Date(Input):
-    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="date", attributes=attributes)
 
 
-class DateRange:
-    pass
+class DateRange(Input):
+    def __init__(self, name: str, value: str = "", *, second_name: str = "", second_value: str = "", attributes: dict[str, str] = {}):
+        if not second_name:
+            second_name = f"{name}[1]"
+            name = f"{name}[0]"
+
+        super().__init__(name, value, type="date", attributes=attributes)
+        self.second_element = Date(second_name, second_value, attributes=attributes)
+
+    def template(self):
+        return f"""
+            <div class="row">
+                <div class="col-6">
+                    {super().template()}
+                </div>
+                <div class="col-6">
+                    {self.second_element.template()}
+                </div>
+            </div>
+        """
 
 
 class Datetime(Input):
@@ -295,12 +313,30 @@ class Datetime(Input):
 
 
 class Time(Input):
-    def __init__(self, name: str, value: int | float | str = "", *, attributes: dict[str, str] = {}):
+    def __init__(self, name: str, value: str = "", *, attributes: dict[str, str] = {}):
         super().__init__(name, value, type="time", attributes=attributes)
 
 
-class TimeRange:
-    pass
+class TimeRange(Input):
+    def __init__(self, name: str, value: str = "", *, second_name: str = "", second_value: str = "", attributes: dict[str, str] = {}):
+        if not second_name:
+            second_name = f"{name}[1]"
+            name = f"{name}[0]"
+
+        super().__init__(name, value, type="time", attributes=attributes)
+        self.second_element = Time(second_name, second_value, attributes=attributes)
+
+    def template(self):
+        return f"""
+            <div class="row">
+                <div class="col-6">
+                    {super().template()}
+                </div>
+                <div class="col-6">
+                    {self.second_element.template()}
+                </div>
+            </div>
+        """
 
 
 class Hidden(Input):
@@ -1050,7 +1086,7 @@ class Dictbox(FormElement):
 
 
 class FormGroup(XHtmlElement):
-    def __init__(self, element: FormElement, *, label: str, colsize: int = 12, help_text: str = "", attributes: dict[str, str] = {}):
+    def __init__(self, element: XHtmlElement, *, label: str, colsize: int = 12, help_text: str = "", attributes: dict[str, str] = {}):
         super().__init__(attributes)
         self.element = element
         self.label = label
@@ -1102,7 +1138,9 @@ class Form(XHtmlElement):
     class e:
         Input: FormElement = Input
         Date: FormElement = Date
+        DateRange: FormElement = DateRange
         Time: FormElement = Time
+        TimeRange: FormElement = TimeRange
         Datetime: FormElement = Datetime
         Hidden: FormElement = Hidden
         Password: FormElement = Password

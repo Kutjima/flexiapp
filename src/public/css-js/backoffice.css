@@ -1,3 +1,7 @@
+*:focus {
+    box-shadow: none !important;
+}
+
 .w-0 {
     width: 0 !important;
     min-width: 0!important;
