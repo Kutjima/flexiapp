@@ -28,7 +28,6 @@ app = FastAPI(title="Flexiapp")
 # app.mount("/public", StaticFiles(directory="public/"), name="public")
 app.mount("/flexiapp/public", StaticFiles(directory=f"{FLEXIAPP_PATH}/public/"), name="flexapp/public")
 
-
 # Jinja2 Env
 env = Environment(
     loader=FileSystemLoader([
@@ -42,10 +41,7 @@ flexihtml = Flexihtml("Hello World !")
 # flexihtml.set_logo_image("/public/images/logos/logo-h.png")
 flexihtml.tabs.add("../", "Dashboard", '<i class="fa-solid fa-desktop"></i>')
 flexihtml.tabs.add("../text-input", "Text Input", '<i class="fa-solid fa-desktop"></i>')
-flexihtml.tabs.add("../date", "Date", '<i class="fa-solid fa-desktop"></i>')
-flexihtml.tabs.add("../time", "Time", '<i class="fa-solid fa-desktop"></i>')
 flexihtml.tabs.add("../file", "File", '<i class="fa-solid fa-desktop"></i>')
-flexihtml.tabs.add("../range", "Range", '<i class="fa-solid fa-desktop"></i>')
 flexihtml.tabs.add("../radio", "Radio", '<i class="fa-solid fa-desktop"></i>')
 flexihtml.tabs.add("../checkbox", "Checkbox", '<i class="fa-solid fa-desktop"></i>')
 flexihtml.tabs.add("../selectbox", "Select Box", '<i class="fa-solid fa-desktop"></i>')
@@ -66,77 +62,6 @@ def home(request: Request):
             "html": "",
         }),
     )
-
-@app.get("/date")
-def date_example(request: Request):
-    html = Form.e.FormGroup(
-        Form.e.Date(
-            "Date",
-            "",
-        ),
-        label="Date",
-        help_text="Date",
-        colsize=COLSIZE,
-    )
-    html += Form.e.FormGroup(
-        Form.e.DateRange(
-            "DateRange",
-            "",
-            second_name="world"
-        ),
-        label="Date Range",
-        help_text="Date Range",
-        colsize=COLSIZE,
-    )
-    html += Form.e.FormGroup(
-        Form.e.Datetime(
-            "Datetime",
-            "",
-        ),
-        label="Datetime",
-        help_text="Datetime",
-        colsize=COLSIZE,
-    )
-
-    return HTMLResponse(
-        status_code=status.HTTP_200_OK,
-        content=env.get_template("backoffice/form.html").render({
-            "timestamp": time.time(),
-            "flexihtml": flexihtml,
-            "html": html.content(),
-        }),
-    )
-
-@app.get("/time")
-def time_example(request: Request):
-    html = Form.e.FormGroup(
-        Form.e.Time(
-            "Time",
-            "",
-        ),
-        label="Time",
-        help_text="Time",
-        colsize=COLSIZE,
-    )
-    html += Form.e.FormGroup(
-        Form.e.TimeRange(
-            "TimeRange",
-            "",
-        ),
-        label="Time Range",
-        help_text="Time Range",
-        colsize=COLSIZE,
-    )
-
-    return HTMLResponse(
-        status_code=status.HTTP_200_OK,
-        content=env.get_template("backoffice/form.html").render({
-            "timestamp": time.time(),
-            "flexihtml": flexihtml,
-            "html": html.content(),
-        }),
-    )
-
 
 @app.get("/text-input")
 def text_example(request: Request):
@@ -187,7 +112,7 @@ def text_example(request: Request):
     )
     html += Form.e.FormGroup(
         Form.e.Text(
-            "Text",
+            "Text with datalist",
             "USA",
             data=[
                 "France",
@@ -195,18 +120,18 @@ def text_example(request: Request):
                 "Mauritius",
             ],
         ),
-        label="Text",
+        label="Text with datalist",
         help_text="Text",
         colsize=COLSIZE,
     )
     html += Form.e.FormGroup(
         Form.e.Text(
-            "Text3",
+            "",
             "",
             data="/an-endpoint-2",
         ),
-        label="Text 3",
-        help_text="Text 3",
+        label="Text with datalist (endpoint)",
+        help_text="Text with datalist (endpoint)",
         colsize=COLSIZE,
     )
     html += Form.e.FormGroup(
@@ -221,6 +146,67 @@ def text_example(request: Request):
         help_text="Text Preview",
         colsize=COLSIZE,
     )
+    html += Form.e.FormGroup(
+        Form.e.Textarea(
+            "Textarea",
+            "Textarea",
+        ),
+        label="Textarea",
+        help_text="Textarea",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.Date(
+            "Date",
+            "",
+        ),
+        label="Date",
+        help_text="Date",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.DateRange(
+            "DateRange",
+            "",
+            second_name="world"
+        ),
+        label="Date Range",
+        help_text="Date Range",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.Datetime(
+            "Datetime",
+            "",
+        ),
+        label="Datetime",
+        help_text="Datetime",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.Time(
+            "Time",
+            "",
+        ),
+        label="Time",
+        help_text="Time",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.TimeRange(
+            "TimeRange",
+            "",
+        ),
+        label="Time Range",
+        help_text="Time Range",
+        colsize=COLSIZE,
+    )
+    html += Form.e.FormGroup(
+        Form.e.Range("Range", 10),
+        label="Range",
+        help_text="Range",
+        colsize=COLSIZE,
+    )
 
     return HTMLResponse(
         status_code=status.HTTP_200_OK,
@@ -231,9 +217,41 @@ def text_example(request: Request):
         }),
     )
 
-@app.get("/text-inpust")
-def text_example(request: Request):
-    
+@app.get("/file")
+def file_example(request: Request):
+    html = Form.e.FormGroup(
+        Form.e.File("File"),
+        label="File",
+        help_text="File",
+        colsize=COLSIZE,
+    )
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
+    )
+
+
+@app.get("/selectbox")
+def selectbox_example(request: Request):
+    html = Form.e.FormGroup(
+        Form.e.Selectbox(
+            "Selectbox",
+            "us",
+            options={
+                "fr": "France",
+                "us": "USA",
+                "mu": "Mauritius",
+            },
+        ),
+        label="Selectbox",
+        help_text="Selectbox",
+        colsize=COLSIZE,
+    )
     html += Form.e.FormGroup(
         PhotoFrame(
             Form.e.Selectbox(
@@ -255,19 +273,19 @@ def text_example(request: Request):
         help_text="Text Preview",
         colsize=COLSIZE,
     )
-    html += Form.e.FormGroup(
-        Form.e.File("File"),
-        label="File",
-        help_text="File",
-        colsize=COLSIZE,
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
     )
-    html += Form.e.FormGroup(
-        Form.e.Range("Range", 10),
-        label="Range",
-        help_text="Range",
-        colsize=COLSIZE,
-    )
-    html += Form.e.FormGroup(
+
+@app.get("/radio")
+def radio_example(request: Request):
+    html = Form.e.FormGroup(
         Form.e.Radio(
             "Radio",
             "Radio01",
@@ -309,7 +327,19 @@ def text_example(request: Request):
         help_text="SwitchRadios",
         colsize=COLSIZE,
     )
-    html += Form.e.FormGroup(
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
+    )
+
+@app.get("/checkbox")
+def checkbox_example(request: Request):
+    html = Form.e.FormGroup(
         Form.e.Checkbox(
             "Checkbox",
             "Checkbox",
@@ -356,30 +386,19 @@ def text_example(request: Request):
         help_text="SwitchCheckboxes",
         colsize=COLSIZE,
     )
-    html += Form.e.FormGroup(
-        Form.e.Textarea(
-            "Textarea",
-            "Textarea",
-        ),
-        label="Textarea",
-        help_text="Textarea",
-        colsize=COLSIZE,
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
     )
-    html += Form.e.FormGroup(
-        Form.e.Selectbox(
-            "Selectbox",
-            "us",
-            options={
-                "fr": "France",
-                "us": "USA",
-                "mu": "Mauritius",
-            },
-        ),
-        label="Selectbox",
-        help_text="Selectbox",
-        colsize=COLSIZE,
-    )
-    html += Form.e.FormGroup(
+
+@app.get("/searchbox")
+def searchbox_example(request: Request):
+    html = Form.e.FormGroup(
         Form.e.Searchbox(
             "Searchbox",
             endpoint="/an-endpoint",
@@ -388,7 +407,19 @@ def text_example(request: Request):
         help_text="Searchbox",
         colsize=COLSIZE,
     )
-    html += Form.e.FormGroup(
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
+    )
+
+@app.get("/listbox")
+def listbox_example(request: Request):
+    html = Form.e.FormGroup(
         Form.e.Listbox(
             "ListboxInput",
             element=Form.e.Text("XXXX"),
@@ -468,7 +499,19 @@ def text_example(request: Request):
         help_text="Text Preview 3",
         colsize=COLSIZE,
     )
-    html += Form.e.FormGroup(
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
+    )
+
+@app.get("/dictbox")
+def dictbox_example(request: Request):
+    html = Form.e.FormGroup(
         Form.e.Dictbox(
             "Dictbox",
             elements={
@@ -503,7 +546,19 @@ def text_example(request: Request):
         help_text="Listbox Dictbox",
         colsize=COLSIZE,
     )
-    html += Form.e.FloatingLabel(
+
+    return HTMLResponse(
+        status_code=status.HTTP_200_OK,
+        content=env.get_template("backoffice/form.html").render({
+            "timestamp": time.time(),
+            "flexihtml": flexihtml,
+            "html": html.content(),
+        }),
+    )
+
+@app.get("/floating-label")
+def floating_label_example(request: Request):
+    html = Form.e.FloatingLabel(
         Form.e.Text(
             "FloatingLabelText",
             "FloatingLabel Text",
