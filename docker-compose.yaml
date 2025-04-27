@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+
+    flexiapp:
+        build: .
+        container_name: flexiapp
+        ports:
+            - "9002:80"
+        restart: always
+        tty: true
+        volumes:
+            - ./src:/app/src
