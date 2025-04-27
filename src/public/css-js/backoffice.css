@@ -162,6 +162,10 @@ main.columns section.aside:nth-child(2) {
     margin-bottom: 25px;
 }
 
+.flexlist .form-group.fx-group {
+    margin-bottom: 5px;
+}
+
 .form-label,
 .col-form-label {
     font-size: 17px;
