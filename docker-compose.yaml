@@ -1,9 +1,11 @@
-version: "3.9"
+name: flexiapp
+
 services:
 
-    flexiapp:
+    webapp:
         build: .
-        container_name: flexiapp
+        image: flexiapp/webapp
+        container_name: flexiapp-webapp
         ports:
             - "9002:80"
         restart: always

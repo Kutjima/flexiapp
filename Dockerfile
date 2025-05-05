@@ -2,7 +2,7 @@ FROM python:latest
 
 WORKDIR /app
 
-RUN apt-get upgrade && apt-get update
+RUN apt-get update && apt-get upgrade -y
 RUN python -m ensurepip --upgrade
 RUN pip install requests
 RUN pip install fastapi 
